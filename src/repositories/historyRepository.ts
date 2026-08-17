@@ -18,7 +18,25 @@ export class HistoryRepository {
       .reverse()
       .sortBy('createdAt');
 
-    return lists.slice(offset, offset + limit);
+    if (lists.length > 0) {
+      return lists.slice(offset, offset + limit);
+    }
+
+    // If local Dexie has no past lists, check remote Supabase for household history
+    const household = useAuthStore.getState().household;
+    if (household) {
+      try {
+        const remoteLists = await remoteHistoryRepository.getPastLists(household.id, limit, offset);
+        if (remoteLists.length > 0) {
+          await this.db.groceryLists.bulkPut(remoteLists);
+          return remoteLists;
+        }
+      } catch (rErr) {
+        console.warn('Could not fetch remote past lists:', rErr);
+      }
+    }
+
+    return [];
   }
 
   async getListsByMonth(listMonth: string): Promise<GroceryListWithItems[]> {

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { History as HistoryIcon, Calendar, ArrowRight, Trash2, AlertTriangle, X } from 'lucide-react';
 import { listRepository } from '../../repositories/listRepository';
-import { db } from '../../db';
+import { historyRepository } from '../../repositories/historyRepository';
 import type { GroceryList } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -28,25 +28,9 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate, onSelectLi
     setIsLoading(true);
     setError(null);
     try {
-      const allLists = await db.groceryLists.reverse().sortBy('createdAt');
-      const validLists: GroceryList[] = [];
-
-      for (const l of allLists) {
-        if (l.status !== 'draft') {
-          validLists.push(l);
-        } else {
-          // Only show draft lists if they actually contain items
-          const itemCount = await db.listItems.where('listId').equals(l.id).count();
-          if (itemCount > 0) {
-            validLists.push(l);
-          } else {
-            // Clean up orphaned empty draft rows from DB so they never clutter history
-            await listRepository.deleteList(l.id);
-          }
-        }
-      }
-
-      setPastLists(validLists);
+      // Fetch past completed/finalized/shopping lists
+      const lists = await historyRepository.getPastLists(50);
+      setPastLists(lists);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load past history';
       setError(msg);
