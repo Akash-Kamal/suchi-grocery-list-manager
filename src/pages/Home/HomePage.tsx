@@ -85,7 +85,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, household?.id]);
 
   const handleConfirmDeleteDraft = async () => {
     setIsDeletingDraft(true);

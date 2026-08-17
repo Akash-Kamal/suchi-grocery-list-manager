@@ -105,6 +105,12 @@ export const App: React.FC = () => {
   }, [pendingInviteCode, user]);
 
   const handleHouseholdSetupSuccess = async () => {
+    setPendingInviteCode('');
+    await loadDraftList();
+    setCurrentPath('/');
+    setSelectedListId(null);
+    setIsShoppingMode(false);
+
     // Check if device has local lists to offer migration
     const summary = await localDataMigrator.getLocalSummary();
     if (summary.listsCount > 0) {

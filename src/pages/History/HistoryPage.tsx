@@ -57,7 +57,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate, onSelectLi
 
   useEffect(() => {
     fetchHistory();
-  }, []);
+  }, [household?.id]);
 
   const confirmDelete = async () => {
     if (!listToDelete) return;

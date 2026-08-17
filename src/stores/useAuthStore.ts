@@ -411,9 +411,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Hydrate local cache, subscribe to Realtime, then reload draft list store
-      syncManager.pullHouseholdData(household.id)
-        .then(() => useDraftListStore.getState().loadDraftList())
-        .catch(() => {});
+      try {
+        await syncManager.pullHouseholdData(household.id);
+        await useDraftListStore.getState().loadDraftList();
+      } catch (pullErr) {
+        console.warn('Household data hydration error:', pullErr);
+      }
       realtimeSync.subscribeHousehold(household.id);
     } catch (err) {
       console.error('Failed to load user household:', err);
@@ -454,12 +457,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  setHousehold: (household, membership) => {
+  setHousehold: async (household, membership) => {
     set({ household, membership, members: membership ? [membership] : [] });
     if (household) {
-      syncManager.pullHouseholdData(household.id)
-        .then(() => useDraftListStore.getState().loadDraftList())
-        .catch(() => {});
+      try {
+        await syncManager.pullHouseholdData(household.id);
+        await useDraftListStore.getState().loadDraftList();
+      } catch (pullErr) {
+        console.warn('Household data hydration error:', pullErr);
+      }
       realtimeSync.subscribeHousehold(household.id);
       get().fetchHouseholdMembers();
     } else {

@@ -93,7 +93,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
 
   useEffect(() => {
     initData();
-  }, [initData]);
+  }, [initData, household?.id]);
 
   // Group items by category
   const groupedItems = useMemo(() => {
