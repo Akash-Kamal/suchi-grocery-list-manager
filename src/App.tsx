@@ -171,7 +171,7 @@ export const App: React.FC = () => {
 
         {/* Global Footer */}
         <footer className="mt-12 mb-16 md:mb-6 pt-6 text-center text-xs text-gray-400 dark:text-slate-500 font-medium border-t border-gray-100 dark:border-slate-800/80">
-          <p>© 2026 SUCHI. All rights reserved.</p>
+          <p>© 2026 SOOCHI. All rights reserved.</p>
         </footer>
       </main>
 

@@ -39,7 +39,7 @@ export function formatWhatsAppMessage(
     text += `\n`;
   }
 
-  text += `_Generated via Suchi Smart Offline Grocery Manager_`;
+  text += `_Generated via SOOCHI Smart Offline Grocery Manager_`;
 
   return text;
 }

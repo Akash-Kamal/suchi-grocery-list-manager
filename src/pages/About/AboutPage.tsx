@@ -83,7 +83,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
     {
       title: '10. Progressive Web App',
       description:
-        'SUCHI is designed as a modern web application that can provide an app-like experience on supported devices.',
+        'SOOCHI is designed as a modern web application that can provide an app-like experience on supported devices.',
       icon: Smartphone,
       tag: 'PWA',
     },
@@ -120,12 +120,12 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <img
               src="/suchi-logo.png"
-              alt="SUCHI Logo"
+              alt="SOOCHI Logo"
               className="w-16 h-16 sm:w-20 sm:h-20 object-contain drop-shadow-xl"
             />
             <div>
               <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white">
-                About SUCHI
+                About SOOCHI
               </h1>
               <p className="text-sm sm:text-base text-emerald-300 font-medium mt-1">
                 A smarter way to plan, organize, and manage everyday groceries.
@@ -135,10 +135,10 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
 
           <div className="pt-2">
             <p className="text-sm sm:text-base text-emerald-100/90 leading-relaxed max-w-2xl font-normal">
-              SUCHI is a modern grocery management platform designed to simplify the way individuals, families, and households plan, organize, and manage their everyday shopping.
+              SOOCHI is a modern grocery management platform designed to simplify the way individuals, families, and households plan, organize, and manage their everyday shopping.
             </p>
             <p className="text-xs sm:text-sm text-emerald-200/80 leading-relaxed max-w-2xl mt-2">
-              From monthly grocery planning to quick weekly shopping trips, SUCHI brings everything into one organized workspace. Users can create and manage grocery lists, add quantities and notes, categorize items, mark purchases as completed, and keep track of frequently purchased essentials.
+              From monthly grocery planning to quick weekly shopping trips, SOOCHI brings everything into one organized workspace. Users can create and manage grocery lists, add quantities and notes, categorize items, mark purchases as completed, and keep track of frequently purchased essentials.
             </p>
           </div>
         </div>
@@ -155,7 +155,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
               Platform Capabilities
             </h2>
             <p className="text-xs text-gray-500 dark:text-slate-400">
-              Ten powerful pillars built into SUCHI's design
+              Ten powerful pillars built into SOOCHI's design
             </p>
           </div>
         </div>
@@ -248,11 +248,11 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* ─── Why SUCHI? ─────────────────────────────────────────────── */}
+      {/* ─── Why SOOCHI? ─────────────────────────────────────────────── */}
       <section className="space-y-4">
         <div>
           <h2 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white tracking-tight">
-            Why SUCHI?
+            Why SOOCHI?
           </h2>
           <p className="text-xs text-gray-500 dark:text-slate-400">
             Three principles guiding every interaction
@@ -296,7 +296,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
         </h3>
 
         <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 leading-relaxed max-w-2xl font-normal">
-          SUCHI is independently designed and developed by <strong>Akash Kamal</strong>, combining a focused user experience with modern web technologies to create a practical tool for everyday life.
+          SOOCHI is independently designed and developed by <strong>Akash Kamal</strong>, combining a focused user experience with modern web technologies to create a practical tool for everyday life.
         </p>
 
         {onNavigate && (
@@ -318,7 +318,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
           Plan better. Shop together. Stay organized.
         </p>
         <p className="text-[11px] text-gray-400 dark:text-slate-500">
-          © 2026 SUCHI. All rights reserved.
+          © 2026 SOOCHI. All rights reserved.
         </p>
       </footer>
     </div>

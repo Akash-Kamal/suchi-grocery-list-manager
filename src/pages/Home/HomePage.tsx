@@ -133,7 +133,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
               {userName ? `Namaste, ${userName}!` : 'Namaste!'} Ready for this month's grocery list?
             </h1>
             <p className="text-emerald-100 text-sm md:text-base font-normal leading-relaxed opacity-95">
-              Suchi learns your recurring purchases to pre-fill draft lists and warn you before you forget household staples.
+              SOOCHI learns your recurring purchases to pre-fill draft lists and warn you before you forget household staples.
             </p>
           </div>
           <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none transform translate-x-4 translate-y-4">

@@ -54,7 +54,7 @@ export async function generateGroceryPDF(
     color: rgb(0.02, 0.45, 0.33), // Emerald dark
   });
 
-  page.drawText('SUCHI GROCERY LIST', {
+  page.drawText('SOOCHI GROCERY LIST', {
     x: 48,
     y: y - 22,
     size: 16,
@@ -195,7 +195,7 @@ export async function generateGroceryPDF(
   }
 
   // Footer Branding
-  page.drawText('Generated via Suchi Offline Smart Grocery Manager', {
+  page.drawText('Generated via SOOCHI Offline Smart Grocery Manager', {
     x: 35,
     y: 20,
     size: 7.5,

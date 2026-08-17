@@ -569,7 +569,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <Bell className="w-5 h-5 text-emerald-600 shrink-0" />
             <div>
               <h3 className="text-xs font-bold text-gray-900 dark:text-white">Reminder Day of Month</h3>
-              <p className="text-[11px] text-gray-500 dark:text-slate-400">Day when Suchi prompts to start new list</p>
+              <p className="text-[11px] text-gray-500 dark:text-slate-400">Day when SOOCHI prompts to start new list</p>
             </div>
           </div>
 
@@ -635,17 +635,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </div>
 
-      {/* About SUCHI Platform Card */}
+      {/* About SOOCHI Platform Card */}
       <div className="bg-gradient-to-br from-emerald-900 via-emerald-950 to-slate-900 rounded-2xl p-5 sm:p-6 text-white border border-emerald-800/60 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-3.5">
           <img
             src="/suchi-logo.png"
-            alt="SUCHI"
+            alt="SOOCHI"
             className="w-12 h-12 object-contain drop-shadow-md shrink-0"
           />
           <div>
             <div className="flex items-center space-x-2">
-              <h3 className="text-base font-black text-white">About SUCHI</h3>
+              <h3 className="text-base font-black text-white">About SOOCHI</h3>
               <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-400/30">
                 v2.0
               </span>

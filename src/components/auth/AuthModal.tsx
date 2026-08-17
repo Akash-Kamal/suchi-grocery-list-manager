@@ -165,7 +165,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    setSuccessNotice('Email verified successfully! Welcome to Suchi.');
+    setSuccessNotice('Email verified successfully! Welcome to SOOCHI.');
     setTimeout(() => {
       onSuccess?.();
       handleClose();
@@ -261,7 +261,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="flex items-center space-x-3">
           <img
             src="/suchi-logo.png"
-            alt="Suchi Logo"
+            alt="SOOCHI Logo"
             className="w-12 h-12 object-contain drop-shadow-md shrink-0"
           />
           <div>

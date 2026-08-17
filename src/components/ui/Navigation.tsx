@@ -53,11 +53,11 @@ export const Navigation: React.FC<NavigationProps> = ({
         >
           <img
             src="/suchi-logo.png"
-            alt="Suchi Logo"
+            alt="SOOCHI Logo"
             className="w-8 h-8 object-contain shrink-0 drop-shadow"
           />
           <div>
-            <h1 className="text-sm font-black text-white tracking-tight leading-tight">Suchi</h1>
+            <h1 className="text-sm font-black text-white tracking-tight leading-tight">SOOCHI</h1>
             <p className="text-[10px] text-emerald-300 dark:text-emerald-400 font-medium leading-none">Grocery List Manager</p>
           </div>
         </button>
@@ -102,12 +102,12 @@ export const Navigation: React.FC<NavigationProps> = ({
           <div className="relative shrink-0">
             <img
               src="/suchi-logo.png"
-              alt="Suchi Logo"
+              alt="SOOCHI Logo"
               className="w-11 h-11 object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-200"
             />
           </div>
           <div className="overflow-hidden">
-            <h1 className="text-xl font-black tracking-tight text-white leading-tight">Suchi</h1>
+            <h1 className="text-xl font-black tracking-tight text-white leading-tight">SOOCHI</h1>
             <p className="text-[11px] text-emerald-300 dark:text-emerald-400 font-semibold truncate">
               Grocery List Manager
             </p>
@@ -307,7 +307,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 
           {/* Copyright Footer */}
           <div className="pt-3 border-t border-emerald-900/60 dark:border-slate-800/60 text-center text-[10px] text-emerald-300/60 dark:text-slate-500 font-medium">
-            © 2026 SUCHI. All rights reserved.
+            © 2026 SOOCHI. All rights reserved.
           </div>
         </div>
       </aside>

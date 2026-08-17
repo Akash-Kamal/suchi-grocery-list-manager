@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Suchi Grocery Manager',
-        short_name: 'Suchi',
-        description: 'Local-first, offline-capable grocery list manager for Indian households',
+        name: 'SOOCHI Grocery Manager',
+        short_name: 'SOOCHI',
+        description: 'Local-first, offline-capable smart grocery list manager for Indian households',
         theme_color: '#059669',
         background_color: '#047857',
         display: 'standalone',
