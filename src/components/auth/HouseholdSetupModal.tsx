@@ -20,10 +20,11 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
   const [householdName, setHouseholdName] = useState('');
   const [inviteCode, setInviteCode] = useState(defaultInviteCode);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLeaveAndJoining, setIsLeaveAndJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const { user, fetchUserHousehold } = useAuthStore();
+  const { user, household, fetchUserHousehold } = useAuthStore();
 
   // Sync defaultInviteCode into state whenever the modal opens or the code changes.
   // useState only initialises once at component mount (when the code is still ''),
@@ -41,23 +42,29 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
 
   if (!isOpen) return null;
 
+  /** Extracts the raw invite code from a full URL or bare code string. */
+  const extractCode = (raw: string): string => {
+    let code = raw.trim();
+    if (code.includes('/join/')) {
+      code = code.split('/join/')[1]?.split('?')[0] || code;
+    } else if (code.includes('join=')) {
+      code = new URLSearchParams(code.split('?')[1]).get('join') || code;
+    }
+    return code;
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!householdName.trim() || !user) return;
-
     setIsLoading(true);
     setError(null);
     try {
       await householdRepository.createHousehold(householdName, user.id);
       await fetchUserHousehold();
       setSuccessMessage(`Household "${householdName.trim()}" created successfully!`);
-      setTimeout(() => {
-        onSuccess?.();
-        onClose();
-      }, 1200);
+      setTimeout(() => { onSuccess?.(); onClose(); }, 1200);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to create household';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'Failed to create household');
     } finally {
       setIsLoading(false);
     }
@@ -66,37 +73,48 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteCode.trim() || !user) return;
-
     setIsLoading(true);
     setError(null);
     try {
-      // Extract raw code if full URL was pasted
-      let cleanCode = inviteCode.trim();
-      if (cleanCode.includes('/join/')) {
-        cleanCode = cleanCode.split('/join/')[1]?.split('?')[0] || cleanCode;
-      } else if (cleanCode.includes('join=')) {
-        cleanCode = new URLSearchParams(cleanCode.split('?')[1]).get('join') || cleanCode;
-      }
-
-      const result = await householdRepository.redeemInvite(cleanCode);
+      const result = await householdRepository.redeemInvite(extractCode(inviteCode));
       await fetchUserHousehold();
       setSuccessMessage(`Joined household "${result.householdName}"!`);
-      setTimeout(() => {
-        onSuccess?.();
-        onClose();
-      }, 1200);
+      setTimeout(() => { onSuccess?.(); onClose(); }, 1200);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to join household';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'Failed to join household');
     } finally {
       setIsLoading(false);
     }
   };
 
+  /**
+   * One-tap: leaves the current household then immediately retries the join.
+   * Shown only when the RPC error is "already a member of a household".
+   */
+  const handleLeaveAndJoin = async () => {
+    if (!user || !household) return;
+    setIsLeaveAndJoining(true);
+    setError(null);
+    try {
+      await householdRepository.leaveHousehold(household.id, user.id);
+      const result = await householdRepository.redeemInvite(extractCode(inviteCode));
+      await fetchUserHousehold();
+      setSuccessMessage(`Left previous household and joined "${result.householdName}"!`);
+      setTimeout(() => { onSuccess?.(); onClose(); }, 1400);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to leave and join household');
+    } finally {
+      setIsLeaveAndJoining(false);
+    }
+  };
+
+  const isAlreadyMemberError = Boolean(error?.toLowerCase().includes('already a member'));
+
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100 dark:border-slate-800 relative space-y-5">
-        {/* Close Button */}
+
+        {/* Close button */}
         <button
           onClick={onClose}
           aria-label="Close setup modal"
@@ -118,45 +136,33 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tab switcher */}
         <div className="grid grid-cols-2 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('create');
-              setError(null);
-            }}
-            className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === 'create'
-                ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
-            }`}
-          >
-            Create Household
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('join');
-              setError(null);
-            }}
-            className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === 'join'
-                ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
-            }`}
-          >
-            Join with Code
-          </button>
+          {(['create', 'join'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => { setActiveTab(tab); setError(null); }}
+              className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeTab === tab
+                  ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              {tab === 'create' ? 'Create Household' : 'Join with Code'}
+            </button>
+          ))}
         </div>
 
+        {/* Success state */}
         {successMessage ? (
           <div className="p-4 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-center space-y-2">
             <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
             <p className="text-xs font-bold text-emerald-900 dark:text-emerald-300">{successMessage}</p>
           </div>
+
         ) : activeTab === 'create' ? (
-          /* Create Household Tab */
+          /* ── Create Household ── */
           <form onSubmit={handleCreate} className="space-y-4">
             <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
               Create a shared household. You will be the owner and can invite family members using an invite link.
@@ -189,21 +195,15 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
               disabled={isLoading || !householdName.trim()}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Creating Household...</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="w-4 h-4" />
-                  <span>Create Household</span>
-                </>
-              )}
+              {isLoading
+                ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Creating Household...</span></>
+                : <><Plus className="w-4 h-4" /><span>Create Household</span></>
+              }
             </button>
           </form>
+
         ) : (
-          /* Join with Code Tab */
+          /* ── Join with Code ── */
           <form onSubmit={handleJoin} className="space-y-4">
             <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
               Paste the invite code or link shared with you by your household owner.
@@ -227,29 +227,44 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
               </div>
             </div>
 
+            {/* Error block — amber + "Leave & Join" CTA when user is already in a household */}
             {error && (
-              <div className="p-3 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 rounded-xl text-xs font-semibold text-red-700 dark:text-red-300 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+              <div className="rounded-xl border overflow-hidden">
+                <div className={`p-3 text-xs font-semibold flex items-start gap-2 ${
+                  isAlreadyMemberError
+                    ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                    : 'bg-red-50 dark:bg-red-950/60 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+                }`}>
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+
+                {/* One-tap shortcut: leave current household and immediately join the new one */}
+                {isAlreadyMemberError && household && (
+                  <button
+                    type="button"
+                    onClick={handleLeaveAndJoin}
+                    disabled={isLeaveAndJoining}
+                    className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
+                  >
+                    {isLeaveAndJoining
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Leaving &amp; Joining...</span></>
+                      : <><ArrowRight className="w-4 h-4" /><span>Leave current household &amp; Join this one</span></>
+                    }
+                  </button>
+                )}
               </div>
             )}
 
             <button
               type="submit"
-              disabled={isLoading || !inviteCode.trim()}
+              disabled={isLoading || isLeaveAndJoining || !inviteCode.trim()}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Joining Household...</span>
-                </>
-              ) : (
-                <>
-                  <span>Join Household</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              {isLoading
+                ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Joining Household...</span></>
+                : <><span>Join Household</span><ArrowRight className="w-4 h-4" /></>
+              }
             </button>
           </form>
         )}
