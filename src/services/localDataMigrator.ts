@@ -39,9 +39,17 @@ export class LocalDataMigrator {
       await supabase.from('catalog_items').upsert(remoteCustomItems);
     }
 
-    // 2. Upload grocery lists
+    // 2. Upload grocery lists (ensure at most 1 draft per household)
     if (lists.length > 0) {
-      const remoteLists = lists.map((l) => mapLocalListToRemote(l, householdId));
+      let draftFound = false;
+      const remoteLists = lists.map((l) => {
+        let status = l.status;
+        if (status === 'draft') {
+          if (draftFound) status = 'finalized';
+          else draftFound = true;
+        }
+        return mapLocalListToRemote({ ...l, status }, householdId);
+      });
       await supabase.from('grocery_lists').upsert(remoteLists);
     }
 

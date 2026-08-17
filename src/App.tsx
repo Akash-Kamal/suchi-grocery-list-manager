@@ -14,7 +14,6 @@ import { LocalDataImportModal } from './components/auth/LocalDataImportModal';
 import { useDraftListStore } from './stores/useDraftListStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { preferenceRepository } from './repositories/preferenceRepository';
-import { localDataMigrator } from './services/localDataMigrator';
 import { supabase } from './lib/supabaseClient';
 import { applyAppTheme } from './utils/theme';
 import type { EmailOtpType } from '@supabase/supabase-js';
@@ -110,12 +109,6 @@ export const App: React.FC = () => {
     setCurrentPath('/');
     setSelectedListId(null);
     setIsShoppingMode(false);
-
-    // Check if device has local lists to offer migration
-    const summary = await localDataMigrator.getLocalSummary();
-    if (summary.listsCount > 0) {
-      setShowImportModal(true);
-    }
   };
 
   const handleNavigate = (path: TabPath) => {

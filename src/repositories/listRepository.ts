@@ -58,18 +58,45 @@ export class ListRepository {
         }
       }
     } else {
-      // Default: return existing draft if one is already active.
-      const existingDraft = await this.db.groceryLists
+      // If in a household, first check if Supabase has an existing draft before creating a new one
+      const household = useAuthStore.getState().household;
+      if (household) {
+        try {
+          const remoteDraft = await remoteListRepository.getCurrentDraft(household.id);
+          if (remoteDraft) {
+            await this.db.groceryLists.put(remoteDraft.list);
+            if (remoteDraft.items.length > 0) {
+              await this.db.listItems.bulkPut(remoteDraft.items);
+            }
+            return remoteDraft;
+          }
+        } catch (rErr) {
+          console.warn('Could not fetch remote draft:', rErr);
+        }
+      }
+
+      // Default: return existing draft from Dexie if one is already active (latest updatedAt first)
+      const existingDrafts = await this.db.groceryLists
         .where('status')
         .equals('draft')
-        .first();
+        .reverse()
+        .sortBy('updatedAt');
 
-      if (existingDraft) {
+      if (existingDrafts && existingDrafts.length > 0) {
+        const activeDraft = existingDrafts[0];
+        // Clean up duplicate drafts if any
+        if (existingDrafts.length > 1) {
+          const extraIds = existingDrafts.slice(1).map((d) => d.id);
+          await this.db.groceryLists.bulkDelete(extraIds);
+          for (const eId of extraIds) {
+            await this.db.listItems.where('listId').equals(eId).delete();
+          }
+        }
         const items = await this.db.listItems
           .where('listId')
-          .equals(existingDraft.id)
+          .equals(activeDraft.id)
           .sortBy('sortOrder');
-        return { list: existingDraft, items };
+        return { list: activeDraft, items };
       }
     }
 
@@ -97,19 +124,51 @@ export class ListRepository {
   }
 
   async getCurrentDraft(): Promise<GroceryListWithItems | null> {
-    const draft = await this.db.groceryLists
+    const household = useAuthStore.getState().household;
+
+    // Pick latest updated draft first
+    const drafts = await this.db.groceryLists
       .where('status')
       .equals('draft')
-      .first();
+      .reverse()
+      .sortBy('updatedAt');
 
-    if (!draft) return null;
+    if (drafts.length > 0) {
+      const draft = drafts[0];
+      // Clean up duplicate drafts if any
+      if (drafts.length > 1) {
+        const extraIds = drafts.slice(1).map((d) => d.id);
+        await this.db.groceryLists.bulkDelete(extraIds);
+        for (const eId of extraIds) {
+          await this.db.listItems.where('listId').equals(eId).delete();
+        }
+      }
 
-    const items = await this.db.listItems
-      .where('listId')
-      .equals(draft.id)
-      .sortBy('sortOrder');
+      const items = await this.db.listItems
+        .where('listId')
+        .equals(draft.id)
+        .sortBy('sortOrder');
 
-    return { list: draft, items };
+      return { list: draft, items };
+    }
+
+    // If Dexie has no draft, but user is in a household, query remote Supabase directly!
+    if (household) {
+      try {
+        const remoteDraft = await remoteListRepository.getCurrentDraft(household.id);
+        if (remoteDraft) {
+          await this.db.groceryLists.put(remoteDraft.list);
+          if (remoteDraft.items.length > 0) {
+            await this.db.listItems.bulkPut(remoteDraft.items);
+          }
+          return remoteDraft;
+        }
+      } catch (rErr) {
+        console.warn('Could not fetch remote draft in getCurrentDraft:', rErr);
+      }
+    }
+
+    return null;
   }
 
   async saveDraftList(list: GroceryList, items: ListItem[]): Promise<void> {
