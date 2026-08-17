@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Search, Heart, Plus, Minus, X, Edit2, Trash2, Check, Scale, TrendingUp } from 'lucide-react';
 import { catalogRepository } from '../../repositories/catalogRepository';
 import { useDraftListStore } from '../../stores/useDraftListStore';
@@ -65,7 +65,7 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -87,11 +87,11 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [debouncedQuery, loadDraftList, selectedCategory]);
 
   useEffect(() => {
     loadData();
-  }, [debouncedQuery, selectedCategory]);
+  }, [loadData]);
 
   const handleToggleFavorite = async (catalogItemId: string) => {
     try {

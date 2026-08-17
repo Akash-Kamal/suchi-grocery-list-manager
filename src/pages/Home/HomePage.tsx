@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { ShoppingBag, ArrowRight, PlusCircle, AlertTriangle, Sparkles, History as HistoryIcon, Trash2, X, Clock } from 'lucide-react';
 import { useDraftListStore } from '../../stores/useDraftListStore';
 import { historyRepository } from '../../repositories/historyRepository';
@@ -25,7 +25,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [showDeleteDraftModal, setShowDeleteDraftModal] = useState<boolean>(false);
   const [isDeletingDraft, setIsDeletingDraft] = useState<boolean>(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsHomeLoading(true);
     setHomeError(null);
     try {
@@ -65,11 +65,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     } finally {
       setIsHomeLoading(false);
     }
-  };
+  }, [items, loadDraftList]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleConfirmDeleteDraft = async () => {
     setIsDeletingDraft(true);

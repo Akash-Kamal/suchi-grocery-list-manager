@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { CheckCircle2, Search, ArrowLeft, Check } from 'lucide-react';
 import { listRepository } from '../../repositories/listRepository';
 import { historyRepository } from '../../repositories/historyRepository';
@@ -24,7 +24,7 @@ export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNa
   // Track the active shopping session ID for event recording
   const sessionIdRef = useRef<string | null>(null);
 
-  const loadSessionData = async () => {
+  const loadSessionData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -47,14 +47,11 @@ export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNa
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [listId]);
 
   useEffect(() => {
     loadSessionData();
-    // Note: on unmount (user navigates back without finishing), the session stays open
-    // (completedAt = null) — this is intentional per the audit trail spec.
-    // It will not count toward recurring stats since only completed sessions do.
-  }, [listId]);
+  }, [loadSessionData]);
 
   const handleToggleBought = async (itemId: string, currentPurchased: boolean) => {
     const nextStatus = !currentPurchased;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { ArrowLeft, FileText, Share2, Play, CheckCircle2, Sparkles, Trash2, AlertTriangle, X, Info } from 'lucide-react';
 import { listRepository } from '../../repositories/listRepository';
 import { catalogRepository } from '../../repositories/catalogRepository';
@@ -53,7 +53,7 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
 
   const { loadDraftList } = useDraftListStore();
 
-  const fetchDetail = async () => {
+  const fetchDetail = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -73,11 +73,11 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [listId]);
 
   useEffect(() => {
     fetchDetail();
-  }, [listId]);
+  }, [fetchDetail]);
 
   const handleExportPDF = async () => {
     if (!list || items.length === 0) return;

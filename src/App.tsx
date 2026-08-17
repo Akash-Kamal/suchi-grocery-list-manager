@@ -16,22 +16,8 @@ import { useAuthStore } from './stores/useAuthStore';
 import { preferenceRepository } from './repositories/preferenceRepository';
 import { localDataMigrator } from './services/localDataMigrator';
 import { supabase } from './lib/supabaseClient';
+import { applyAppTheme } from './utils/theme';
 import type { EmailOtpType } from '@supabase/supabase-js';
-
-export const applyAppTheme = (theme: 'light' | 'dark' | 'system') => {
-  const root = document.documentElement;
-  if (theme === 'dark') {
-    root.classList.add('dark');
-  } else if (theme === 'light') {
-    root.classList.remove('dark');
-  } else {
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-  }
-};
 
 export const App: React.FC = () => {
   const [currentPath, setCurrentPath] = useState<TabPath>('/');

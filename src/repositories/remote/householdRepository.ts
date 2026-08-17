@@ -68,30 +68,72 @@ export class HouseholdRepository {
 
   /**
    * Redeems an invite code to join a household.
-   * Invokes the redeem-invite Edge Function (with fallback to RPC/query if in dev).
+   * Uses direct secure Postgres RPC (redeem_household_invite) with Edge Function fallback.
    */
   async redeemInvite(inviteCode: string): Promise<{ householdId: string; householdName: string }> {
     if (!supabase) throw new Error('Supabase client not initialized');
 
-    const code = inviteCode.trim();
+    // Robust cleaning in case a full URL or fragment is passed
+    let code = inviteCode.trim();
+    if (code.includes('join=')) {
+      code = code.split('join=')[1]?.split('&')[0] || code;
+    } else if (code.includes('/join/')) {
+      code = code.split('/join/')[1]?.split('?')[0] || code;
+    }
+    code = decodeURIComponent(code).trim();
 
-    // Call Supabase Edge function
-    const { data, error } = await supabase.functions.invoke('redeem-invite', {
-      body: { invite_code: code },
+    if (!code) {
+      throw new Error('Please enter a valid invite code or link.');
+    }
+
+    // 1. Try secure Postgres RPC function first (direct execution, 0ms cold start)
+    const { data: rpcData, error: rpcError } = await supabase.rpc('redeem_household_invite', {
+      p_invite_code: code,
     });
 
-    if (error) {
-      throw new Error(error.message || 'Failed to redeem invite code');
+    if (!rpcError && rpcData) {
+      if (typeof rpcData === 'object' && rpcData !== null) {
+        if ('error' in rpcData && rpcData.error) {
+          throw new Error(String(rpcData.error));
+        }
+        if ('household_id' in rpcData && rpcData.household_id) {
+          return {
+            householdId: String(rpcData.household_id),
+            householdName: String(rpcData.household_name || 'Shared Household'),
+          };
+        }
+      }
     }
 
-    if (data?.error) {
-      throw new Error(data.error);
+    // 2. Fallback to Supabase Edge function if RPC not executed or unavailable
+    try {
+      const { data: fnData, error: fnError } = await supabase.functions.invoke('redeem-invite', {
+        body: { invite_code: code },
+      });
+
+      if (!fnError && fnData) {
+        if (fnData.error) throw new Error(fnData.error);
+        return {
+          householdId: fnData.household_id,
+          householdName: fnData.household_name,
+        };
+      }
+
+      if (fnError) {
+        // If both failed, display the clear error message
+        if (rpcError) {
+          throw new Error(rpcError.message || fnError.message || 'Failed to redeem invite code');
+        }
+        throw new Error(fnError.message || 'Failed to redeem invite code');
+      }
+    } catch (edgeErr: any) {
+      if (rpcError) {
+        throw new Error(rpcError.message || 'Failed to redeem invite code');
+      }
+      throw edgeErr;
     }
 
-    return {
-      householdId: data.household_id,
-      householdName: data.household_name,
-    };
+    throw new Error('Could not redeem invite code. Please check your link or try again.');
   }
 
   /**

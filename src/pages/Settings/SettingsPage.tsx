@@ -6,7 +6,7 @@ import { householdRepository } from '../../repositories/remote/householdReposito
 import { useAuthStore } from '../../stores/useAuthStore';
 import type { UserPreference, MeasurementSystem, HouseholdMember } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
-import { applyAppTheme } from '../../App';
+import { applyAppTheme } from '../../utils/theme';
 
 interface SettingsPageProps {
   onNavigate: (path: any) => void;

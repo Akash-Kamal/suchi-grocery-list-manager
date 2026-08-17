@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Plus, Minus, Trash2, AlertTriangle, Edit2, Check, X } from 'lucide-react';
 import { useDraftListStore } from '../../stores/useDraftListStore';
 import { catalogRepository } from '../../repositories/catalogRepository';
@@ -41,7 +41,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingNameText, setEditingNameText] = useState<string>('');
 
-  const initData = async () => {
+  const initData = useCallback(async () => {
     try {
       await loadDraftList();
       const cats = await catalogRepository.getCategories();
@@ -84,11 +84,11 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
     } catch (err) {
       console.error('Failed to init review page:', err);
     }
-  };
+  }, [items, loadDraftList]);
 
   useEffect(() => {
     initData();
-  }, [items.length]);
+  }, [initData]);
 
   // Group items by category
   const groupedItems = useMemo(() => {
