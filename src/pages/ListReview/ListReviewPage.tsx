@@ -9,6 +9,7 @@ import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
+import { CatalogPickerModal } from '../../components/catalog/CatalogPickerModal';
 import { useAuthStore } from '../../stores/useAuthStore';
 
 const UNITS = ['kg', 'g', 'L', 'ml', 'pack', 'bottle', 'box', 'piece', 'dozen', 'lb', 'oz'];
@@ -40,6 +41,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
   const [gaps, setGaps] = useState<GapSuggestion[]>([]);
   const [mediansMap, setMediansMap] = useState<Map<string, number>>(new Map());
   const [isFinalizing, setIsFinalizing] = useState<boolean>(false);
+  const [showCatalogModal, setShowCatalogModal] = useState<boolean>(false);
 
   // Inline Item Name Editing State
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -171,10 +173,10 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
 
           <div className="flex items-center space-x-3">
             <button
-              onClick={() => onNavigate('/catalog')}
-              className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              onClick={() => setShowCatalogModal(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
             >
-              + Add More Items
+              + Add Items
             </button>
             {items.length > 0 && (
               <button
@@ -438,6 +440,13 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
           </div>
         </div>
       )}
+
+      {/* Complete Catalog Picker Modal */}
+      <CatalogPickerModal
+        isOpen={showCatalogModal}
+        onClose={() => setShowCatalogModal(false)}
+        currentItems={items}
+      />
     </div>
   );
 };

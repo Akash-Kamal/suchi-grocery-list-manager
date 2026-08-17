@@ -24,6 +24,7 @@ import type { Category, GroceryList, ListItem } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
+import { CatalogPickerModal } from '../../components/catalog/CatalogPickerModal';
 import { useAuthStore } from '../../stores/useAuthStore';
 
 interface ListDetailPageProps {
@@ -55,12 +56,8 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
   const [isExportingPDF, setIsExportingPDF] = useState<boolean>(false);
   const [isSmartMerging, setIsSmartMerging] = useState<boolean>(false);
 
-  // Quick Add Item state
-  const [showAddForm, setShowAddForm] = useState<boolean>(false);
-  const [newItemName, setNewItemName] = useState<string>('');
-  const [newItemQty, setNewItemQty] = useState<number>(1);
-  const [newItemUnit, setNewItemUnit] = useState<string>('kg');
-  const [isAddingItem, setIsAddingItem] = useState<boolean>(false);
+  // Complete Catalog Picker Modal State
+  const [showCatalogModal, setShowCatalogModal] = useState<boolean>(false);
 
   // Custom Delete Confirmation Modal State
   const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
@@ -147,34 +144,6 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
   const handleDeleteItem = async (itemId: string) => {
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     await listRepository.removeListItem(itemId);
-  };
-
-  const handleAddItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItemName.trim()) return;
-
-    setIsAddingItem(true);
-    try {
-      const added = await listRepository.addItemToList(listId, {
-        catalogItemId: null,
-        itemNameSnapshot: newItemName.trim(),
-        quantity: newItemQty || 1,
-        unit: newItemUnit || 'kg',
-        estimatedPrice: null,
-        actualPrice: null,
-        isPurchased: false,
-        note: null,
-      });
-
-      setItems((prev) => [...prev, added]);
-      setNewItemName('');
-      setNewItemQty(1);
-      setShowAddForm(false);
-    } catch (err) {
-      console.error('Failed to add item to list:', err);
-    } finally {
-      setIsAddingItem(false);
-    }
   };
 
   const handleExportPDF = async () => {
@@ -412,83 +381,13 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
         </div>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => setShowCatalogModal(true)}
           className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-xs"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>Add Item</span>
+          <span>Add Items</span>
         </button>
       </div>
-
-      {/* Quick Add Item Inline Form */}
-      {showAddForm && (
-        <form
-          onSubmit={handleAddItem}
-          className="bg-white dark:bg-slate-900/90 rounded-2xl p-4 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-3 animate-fade-in"
-        >
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-black uppercase text-gray-700 dark:text-slate-200 tracking-wider">
-              Add New Item to {list.title}
-            </h4>
-            <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <input
-              type="text"
-              placeholder="Item name (e.g. Eggs, Ghee, Salt)"
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              className="sm:col-span-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              autoFocus
-              required
-            />
-            <input
-              type="number"
-              min="0.1"
-              step="any"
-              value={newItemQty}
-              onChange={(e) => setNewItemQty(Number(e.target.value))}
-              placeholder="Quantity"
-              className="px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <select
-              value={newItemUnit}
-              onChange={(e) => setNewItemUnit(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              {COMMON_UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex justify-end space-x-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isAddingItem || !newItemName.trim()}
-              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow cursor-pointer disabled:opacity-50"
-            >
-              {isAddingItem ? 'Adding...' : 'Add Item'}
-            </button>
-          </div>
-        </form>
-      )}
 
       {/* Interactive & Editable Items List */}
       <div className="bg-white dark:bg-slate-900/90 rounded-2xl p-6 border border-gray-200 dark:border-slate-800 shadow-sm space-y-4">
@@ -505,7 +404,7 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
           <div className="p-8 text-center bg-gray-50 dark:bg-slate-800/40 rounded-xl">
             <p className="text-xs text-gray-500 dark:text-slate-400">No items in this list yet.</p>
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => setShowCatalogModal(true)}
               className="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl cursor-pointer"
             >
               + Add First Item
@@ -724,6 +623,20 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Complete Catalog Picker Modal */}
+      <CatalogPickerModal
+        isOpen={showCatalogModal}
+        onClose={() => setShowCatalogModal(false)}
+        listId={list.id}
+        currentItems={items}
+        onItemAdded={(added) => setItems((prev) => [...prev, added])}
+        onItemUpdated={(itemId, newQty) =>
+          setItems((prev) =>
+            prev.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i))
+          )
+        }
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { CheckCircle2, Search, ArrowLeft, Check, Plus, X } from 'lucide-react';
+import { CheckCircle2, Search, ArrowLeft, Check, Plus } from 'lucide-react';
 import { listRepository } from '../../repositories/listRepository';
 import { historyRepository } from '../../repositories/historyRepository';
 import { shoppingSessionRepository } from '../../repositories/shoppingSessionRepository';
@@ -7,14 +7,13 @@ import { calculateFrequencyScore, calculateMedianQuantity } from '../../services
 import type { GroceryList, ListItem, RecurringItemStat } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { CatalogPickerModal } from '../../components/catalog/CatalogPickerModal';
 import { useAuthStore } from '../../stores/useAuthStore';
 
 interface ShoppingModePageProps {
   listId: string;
   onNavigate: (path: '/' | '/catalog' | '/review' | '/history' | '/settings') => void;
 }
-
-const COMMON_UNITS: string[] = ['kg', 'g', 'L', 'ml', 'pack', 'pcs', 'bottle', 'dozen'];
 
 export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNavigate }) => {
   const [list, setList] = useState<GroceryList | null>(null);
@@ -24,12 +23,8 @@ export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNa
   const [error, setError] = useState<string | null>(null);
   const [isCompleting, setIsCompleting] = useState<boolean>(false);
 
-  // Quick Add Item on the fly
-  const [showAddForm, setShowAddForm] = useState<boolean>(false);
-  const [newItemName, setNewItemName] = useState<string>('');
-  const [newItemQty, setNewItemQty] = useState<number>(1);
-  const [newItemUnit, setNewItemUnit] = useState<string>('kg');
-  const [isAddingItem, setIsAddingItem] = useState<boolean>(false);
+  // Complete Catalog Picker Modal State
+  const [showCatalogModal, setShowCatalogModal] = useState<boolean>(false);
 
   const household = useAuthStore((state) => state.household);
 
@@ -99,34 +94,6 @@ export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNa
       shoppingSessionRepository
         .recordEvent(sessionIdRef.current, itemId, eventType)
         .catch((err) => console.error('Failed to record shopping event:', err));
-    }
-  };
-
-  const handleQuickAddItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItemName.trim()) return;
-
-    setIsAddingItem(true);
-    try {
-      const added = await listRepository.addItemToList(listId, {
-        catalogItemId: null,
-        itemNameSnapshot: newItemName.trim(),
-        quantity: newItemQty || 1,
-        unit: newItemUnit || 'kg',
-        estimatedPrice: null,
-        actualPrice: null,
-        isPurchased: false,
-        note: null,
-      });
-
-      setItems((prev) => [...prev, added]);
-      setNewItemName('');
-      setNewItemQty(1);
-      setShowAddForm(false);
-    } catch (err) {
-      console.error('Failed to add item during shopping:', err);
-    } finally {
-      setIsAddingItem(false);
     }
   };
 
@@ -265,83 +232,13 @@ export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNa
         </div>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer flex items-center space-x-1 shrink-0"
+          onClick={() => setShowCatalogModal(true)}
+          className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer flex items-center space-x-1 shrink-0 transition-all"
         >
           <Plus className="w-4 h-4" />
-          <span>Add</span>
+          <span>Add Items</span>
         </button>
       </div>
-
-      {/* Quick Add Form in Shopping Mode */}
-      {showAddForm && (
-        <form
-          onSubmit={handleQuickAddItem}
-          className="bg-white dark:bg-slate-900/90 rounded-2xl p-4 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-3 animate-fade-in"
-        >
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-black uppercase text-gray-700 dark:text-slate-200 tracking-wider">
-              Add Item in Store
-            </h4>
-            <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <input
-              type="text"
-              placeholder="Item name"
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              className="sm:col-span-2 px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              autoFocus
-              required
-            />
-            <input
-              type="number"
-              min="0.1"
-              step="any"
-              value={newItemQty}
-              onChange={(e) => setNewItemQty(Number(e.target.value))}
-              placeholder="Qty"
-              className="px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <select
-              value={newItemUnit}
-              onChange={(e) => setNewItemUnit(e.target.value)}
-              className="px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              {COMMON_UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex justify-end space-x-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isAddingItem || !newItemName.trim()}
-              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow cursor-pointer disabled:opacity-50"
-            >
-              {isAddingItem ? 'Adding...' : 'Add to List'}
-            </button>
-          </div>
-        </form>
-      )}
 
       {/* Unified In-Place List (Items Stay In Place & Highlight When Checked) */}
       <div className="space-y-2">
@@ -430,6 +327,20 @@ export const ShoppingModePage: React.FC<ShoppingModePageProps> = ({ listId, onNa
           </div>
         )}
       </div>
+
+      {/* Complete Catalog Picker Modal */}
+      <CatalogPickerModal
+        isOpen={showCatalogModal}
+        onClose={() => setShowCatalogModal(false)}
+        listId={listId}
+        currentItems={items}
+        onItemAdded={(added) => setItems((prev) => [...prev, added])}
+        onItemUpdated={(itemId, newQty) =>
+          setItems((prev) =>
+            prev.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i))
+          )
+        }
+      />
     </div>
   );
 };
