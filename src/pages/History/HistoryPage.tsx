@@ -28,7 +28,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate, onSelectLi
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch past completed/finalized/shopping lists
       const lists = await historyRepository.getPastLists(50);
       setPastLists(lists);
     } catch (err: unknown) {

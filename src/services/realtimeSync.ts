@@ -109,6 +109,11 @@ class RealtimeSyncService {
       if (oldId) {
         await db.listItems.delete(oldId);
         await useDraftListStore.getState().loadDraftList();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('suchi:list_item_changed', {
+            detail: { eventType: 'DELETE', itemId: oldId }
+          }));
+        }
       }
       return;
     }
@@ -137,6 +142,11 @@ class RealtimeSyncService {
       const remoteItem = mapRemoteListItem(row);
       await db.listItems.put(remoteItem);
       await useDraftListStore.getState().loadDraftList();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('suchi:list_item_changed', {
+          detail: { eventType, listId: row.list_id, item: remoteItem }
+        }));
+      }
     }
   }
 
