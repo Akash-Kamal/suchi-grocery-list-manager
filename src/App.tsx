@@ -31,7 +31,7 @@ export const App: React.FC = () => {
   const [pendingInviteCode, setPendingInviteCode] = useState<string>('');
 
   const loadDraftList = useDraftListStore((state) => state.loadDraftList);
-  const { user, household, initializeAuth } = useAuthStore();
+  const { user, initializeAuth } = useAuthStore();
 
   useEffect(() => {
     loadDraftList();
@@ -89,16 +89,20 @@ export const App: React.FC = () => {
     }
   }, [user]);
 
-  // Handle pending invite code when auth state changes
+  // Handle pending invite code when auth state changes.
+  // Always open the Household modal for authenticated users so they can attempt to join
+  // (or see a clear error from the RPC if they're already in a different household).
+  // We remove 'household' from deps intentionally to avoid re-triggering after join completes.
   useEffect(() => {
     if (pendingInviteCode) {
       if (!user) {
         setShowAuthModal(true);
-      } else if (!household) {
+      } else {
         setShowHouseholdModal(true);
       }
     }
-  }, [pendingInviteCode, user, household]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingInviteCode, user]);
 
   const handleHouseholdSetupSuccess = async () => {
     // Check if device has local lists to offer migration

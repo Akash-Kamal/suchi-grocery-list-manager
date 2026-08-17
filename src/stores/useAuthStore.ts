@@ -340,6 +340,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (!memberData) {
         realtimeSync.unsubscribe();
+        // If user was previously in a household, clear synced data from local Dexie
+        // so they don't see the shared list after leaving.
+        const hadHousehold = get().household !== null;
+        if (hadHousehold) {
+          try {
+            await db.transaction('rw', [db.groceryLists, db.listItems, db.favorites], async () => {
+              await db.groceryLists.clear();
+              await db.listItems.clear();
+              await db.favorites.clear();
+            });
+          } catch (cleanErr) {
+            console.warn('Could not clear household data on leave:', cleanErr);
+          }
+          useDraftListStore.setState({ currentList: null, items: [], isLoading: false, error: null });
+        }
         set({ household: null, membership: null });
         return;
       }
@@ -373,8 +388,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         membership,
       });
 
-      // Hydrate local cache and subscribe to Realtime
-      syncManager.pullHouseholdData(household.id).catch(() => {});
+      // Hydrate local cache, subscribe to Realtime, then reload draft list store
+      syncManager.pullHouseholdData(household.id)
+        .then(() => useDraftListStore.getState().loadDraftList())
+        .catch(() => {});
       realtimeSync.subscribeHousehold(household.id);
     } catch (err) {
       console.error('Failed to load user household:', err);
@@ -384,7 +401,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setHousehold: (household, membership) => {
     set({ household, membership });
     if (household) {
-      syncManager.pullHouseholdData(household.id).catch(() => {});
+      syncManager.pullHouseholdData(household.id)
+        .then(() => useDraftListStore.getState().loadDraftList())
+        .catch(() => {});
       realtimeSync.subscribeHousehold(household.id);
     } else {
       realtimeSync.unsubscribe();

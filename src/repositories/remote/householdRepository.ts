@@ -188,6 +188,23 @@ export class HouseholdRepository {
       throw new Error(error.message || 'Failed to leave household');
     }
   }
+  /**
+   * Revokes all pending (not yet redeemed) invites for a household.
+   * Existing household members are NOT affected — only un-used invite codes are deleted.
+   */
+  async revokeAllPendingInvites(householdId: string): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized');
+
+    const { error } = await supabase
+      .from('household_invites')
+      .delete()
+      .eq('household_id', householdId)
+      .is('used_by', null);
+
+    if (error) {
+      throw new Error(error.message || 'Failed to revoke pending invites');
+    }
+  }
 }
 
 export const householdRepository = new HouseholdRepository();

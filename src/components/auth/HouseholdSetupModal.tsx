@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, Plus, Key, ArrowRight, AlertCircle, X, Loader2, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { householdRepository } from '../../repositories/remote/householdRepository';
@@ -24,6 +24,20 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { user, fetchUserHousehold } = useAuthStore();
+
+  // Sync defaultInviteCode into state whenever the modal opens or the code changes.
+  // useState only initialises once at component mount (when the code is still ''),
+  // so we need useEffect to pick up later prop changes.
+  useEffect(() => {
+    if (isOpen) {
+      setError(null);
+      setSuccessMessage(null);
+      if (defaultInviteCode) {
+        setInviteCode(defaultInviteCode);
+        setActiveTab('join');
+      }
+    }
+  }, [isOpen, defaultInviteCode]);
 
   if (!isOpen) return null;
 

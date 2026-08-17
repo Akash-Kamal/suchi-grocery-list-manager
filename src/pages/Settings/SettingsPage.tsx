@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Upload, Moon, Sun, Monitor, Bell, CheckCircle2, ShieldCheck, Scale, Users, UserPlus, LogOut, Copy, Check, Trash2, Crown, Info, ArrowRight } from 'lucide-react';
+import { Download, Upload, Moon, Sun, Monitor, Bell, CheckCircle2, ShieldCheck, Scale, Users, UserPlus, LogOut, Copy, Check, Trash2, Crown, Info, ArrowRight, ShieldOff } from 'lucide-react';
 import { db } from '../../db';
 import { preferenceRepository } from '../../repositories/preferenceRepository';
 import { householdRepository } from '../../repositories/remote/householdRepository';
@@ -30,6 +30,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [isCopiedInvite, setIsCopiedInvite] = useState<boolean>(false);
   const [isGeneratingInvite, setIsGeneratingInvite] = useState<boolean>(false);
+  const [isRevokingInvite, setIsRevokingInvite] = useState<boolean>(false);
 
   const loadPrefs = async () => {
     setIsLoading(true);
@@ -124,6 +125,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to leave household';
       setMessage({ text: msg, type: 'error' });
+    }
+  };
+
+  const handleRevokeInvites = async () => {
+    if (!household || !confirm('Revoke all pending invite links? Anyone with an old link will no longer be able to join. Existing members are unaffected.')) return;
+    setIsRevokingInvite(true);
+    try {
+      await householdRepository.revokeAllPendingInvites(household.id);
+      setMessage({ text: 'All pending invite links have been revoked. Existing members are not affected.', type: 'success' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to revoke invites';
+      setMessage({ text: msg, type: 'error' });
+    } finally {
+      setIsRevokingInvite(false);
     }
   };
 
@@ -355,7 +370,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleCopyInviteLink}
                   disabled={isGeneratingInvite}
@@ -364,6 +379,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   {isCopiedInvite ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{isCopiedInvite ? 'Copied!' : 'Copy Invite Link'}</span>
                 </button>
+
+                {isOwner && (
+                  <button
+                    onClick={handleRevokeInvites}
+                    disabled={isRevokingInvite}
+                    title="Revoke all unused invite links (existing members unaffected)"
+                    className="inline-flex items-center space-x-1.5 px-3 py-2 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 font-semibold text-xs rounded-xl cursor-pointer transition-colors disabled:opacity-50"
+                  >
+                    <ShieldOff className="w-3.5 h-3.5" />
+                    <span>{isRevokingInvite ? 'Revoking...' : 'Revoke Invites'}</span>
+                  </button>
+                )}
 
                 {!isOwner && (
                   <button
