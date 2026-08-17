@@ -8,6 +8,8 @@ import type { Category, ListItem } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 const UNITS = ['kg', 'g', 'L', 'ml', 'pack', 'bottle', 'box', 'piece', 'dozen', 'lb', 'oz'];
 
@@ -31,6 +33,8 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
     finalizeList,
     clearDraft,
   } = useDraftListStore();
+
+  const household = useAuthStore((state) => state.household);
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [gaps, setGaps] = useState<GapSuggestion[]>([]);
@@ -147,8 +151,11 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
 
   return (
     <div className="space-y-6 pb-24 animate-fade-in">
+      {/* Household Header Context (when active) */}
+      {household && <HouseholdHeader compact onNavigate={onNavigate} />}
+
       {/* Header & Budget Summary */}
-      <div className="bg-white rounded-2xl p-6 border border-emerald-100 shadow-sm space-y-4">
+      <div className="bg-white dark:bg-slate-900/90 rounded-3xl p-6 border border-emerald-100 dark:border-slate-800 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
           <div>
             <span className="text-xs font-extrabold text-emerald-700 uppercase tracking-wider bg-emerald-100 px-2.5 py-0.5 rounded-md">

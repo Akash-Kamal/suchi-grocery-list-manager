@@ -150,7 +150,12 @@ export const App: React.FC = () => {
           />
         ) : (
           <>
-            {currentPath === '/' && <HomePage onNavigate={handleNavigate} />}
+            {currentPath === '/' && (
+              <HomePage
+                onNavigate={handleNavigate}
+                onOpenHouseholdSetup={() => setShowHouseholdModal(true)}
+              />
+            )}
             {currentPath === '/catalog' && <CatalogPage onNavigate={handleNavigate} />}
             {currentPath === '/review' && <ListReviewPage onNavigate={handleNavigate} />}
             {currentPath === '/history' && <HistoryPage onNavigate={handleNavigate} onSelectList={handleSelectList} />}

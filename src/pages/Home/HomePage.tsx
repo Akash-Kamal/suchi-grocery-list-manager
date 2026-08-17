@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, ArrowRight, PlusCircle, AlertTriangle, Sparkles, History as HistoryIcon, Trash2, X, Clock } from 'lucide-react';
+import { ShoppingBag, ArrowRight, PlusCircle, AlertTriangle, Sparkles, History as HistoryIcon, Trash2, X, Clock, Users, UserPlus } from 'lucide-react';
 import { useDraftListStore } from '../../stores/useDraftListStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { historyRepository } from '../../repositories/historyRepository';
 import { catalogRepository } from '../../repositories/catalogRepository';
 import { isDraftStale } from '../../repositories/listRepository';
@@ -9,21 +10,35 @@ import type { GroceryList } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
+import { LiveSyncBadge } from '../../components/ui/LiveSyncBadge';
+import { HouseholdMembersModal } from '../../components/ui/HouseholdMembersModal';
 
 interface HomePageProps {
   onNavigate: (path: '/' | '/catalog' | '/review' | '/history' | '/settings') => void;
+  onOpenHouseholdSetup?: () => void;
 }
 
-export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
+export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdSetup }) => {
   const { currentList, items, isLoading, error, loadDraftList, applyGapSuggestion, clearDraft } = useDraftListStore();
+  const { user, household, membership, members } = useAuthStore();
   const [pastLists, setPastLists] = useState<GroceryList[]>([]);
   const [gaps, setGaps] = useState<GapSuggestion[]>([]);
   const [isHomeLoading, setIsHomeLoading] = useState(true);
   const [homeError, setHomeError] = useState<string | null>(null);
+  const [showMembersModal, setShowMembersModal] = useState<boolean>(false);
 
   // Custom Delete Draft Modal
   const [showDeleteDraftModal, setShowDeleteDraftModal] = useState<boolean>(false);
   const [isDeletingDraft, setIsDeletingDraft] = useState<boolean>(false);
+
+  const isOwner = membership?.role === 'owner';
+  const ownerMember = members.find((m) => m.role === 'owner');
+  const ownerDisplayName = isOwner
+    ? 'You'
+    : ownerMember?.email
+    ? ownerMember.email.split('@')[0]
+    : 'Household Owner';
 
   const fetchData = useCallback(async () => {
     setIsHomeLoading(true);
@@ -96,26 +111,38 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
   const estimatedTotal = items.reduce((sum, i) => sum + (i.estimatedPrice || 0) * i.quantity, 0);
 
+  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
+
   return (
     <div className="space-y-6 pb-12 animate-fade-in">
-      {/* Header Banner */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-900 text-white rounded-3xl p-6 md:p-8 shadow-xl border border-emerald-700/50">
-        <div className="relative z-10 max-w-xl">
-          <div className="inline-flex items-center space-x-2 bg-emerald-950/60 backdrop-blur-md border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-semibold text-emerald-200 mb-3">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-300 animate-spin" />
-            <span>Smart Suggestion Engine Active</span>
+      {/* ── Household Top Context Banner (When Active) ── */}
+      {household && (
+        <HouseholdHeader
+          onNavigate={onNavigate}
+          onOpenInvite={onOpenHouseholdSetup}
+        />
+      )}
+
+      {/* Header Banner (When No Household) */}
+      {!household && (
+        <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-900 text-white rounded-3xl p-6 md:p-8 shadow-xl border border-emerald-700/50">
+          <div className="relative z-10 max-w-xl">
+            <div className="inline-flex items-center space-x-2 bg-emerald-950/60 backdrop-blur-md border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-semibold text-emerald-200 mb-3">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-300 animate-spin" />
+              <span>Smart Suggestion Engine Active</span>
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-2 text-white">
+              {userName ? `Namaste, ${userName}!` : 'Namaste!'} Ready for this month's grocery list?
+            </h1>
+            <p className="text-emerald-100 text-sm md:text-base font-normal leading-relaxed opacity-95">
+              Suchi learns your recurring purchases to pre-fill draft lists and warn you before you forget household staples.
+            </p>
           </div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-2 text-white">
-            Namaste! Ready for this month's grocery list?
-          </h1>
-          <p className="text-emerald-100 text-sm md:text-base font-normal leading-relaxed opacity-95">
-            Suchi learns your recurring purchases to pre-fill draft lists and warn you before you forget household staples.
-          </p>
+          <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none transform translate-x-4 translate-y-4">
+            <ShoppingBag className="w-64 h-64 text-white" />
+          </div>
         </div>
-        <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none transform translate-x-4 translate-y-4">
-          <ShoppingBag className="w-64 h-64 text-white" />
-        </div>
-      </div>
+      )}
 
       {/* Stale Draft Notice — shown when the active draft was started in a previous month */}
       {currentList && isDraftStale(currentList) && (
@@ -132,16 +159,39 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* Active Draft List Card */}
-      <div className="bg-white dark:bg-slate-900/90 rounded-2xl p-6 border border-emerald-100 dark:border-slate-800 shadow-sm dark:shadow-black/40 hover:shadow-md transition-shadow">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-slate-800">
+      {/* ── Active Grocery List Card (Shared or Personal) ── */}
+      <div className="bg-white dark:bg-slate-900/90 rounded-3xl p-6 md:p-7 border border-emerald-100 dark:border-slate-800 shadow-sm dark:shadow-black/40 hover:shadow-md transition-shadow">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-gray-100 dark:border-slate-800">
           <div>
-            <span className="inline-block px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-xs font-bold uppercase tracking-wider mb-1">
-              Active Draft List
-            </span>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">{currentList?.title || 'Current Monthly Grocery'}</h2>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-              Month: {currentList?.listMonth || new Date().toISOString().substring(0, 7)}
+            <div className="flex items-center space-x-2 mb-1.5">
+              {household ? (
+                <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-xs font-black uppercase tracking-wider">
+                  <span>🏠</span>
+                  <span>Shared Household List</span>
+                </span>
+              ) : (
+                <span className="inline-block px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-xs font-bold uppercase tracking-wider">
+                  Active Draft List
+                </span>
+              )}
+
+              {household && <LiveSyncBadge compact />}
+            </div>
+
+            <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">
+              {currentList?.title || 'Current Monthly Grocery'}
+            </h2>
+
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 flex items-center space-x-2">
+              <span>Month: {currentList?.listMonth || new Date().toISOString().substring(0, 7)}</span>
+              {household && (
+                <>
+                  <span>•</span>
+                  <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                    {household.name} ({isOwner ? '👑 Owner' : `Shared by ${ownerDisplayName}`})
+                  </span>
+                </>
+              )}
             </p>
           </div>
 
@@ -155,7 +205,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             </button>
             <button
               onClick={() => onNavigate('/review')}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-md transition-all cursor-pointer"
+              className="inline-flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-md transition-all cursor-pointer"
             >
               <span>Review ({items.length})</span>
               <ArrowRight className="w-4 h-4" />
@@ -174,11 +224,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         {items.length === 0 ? (
-          <div className="py-8 text-center bg-gray-50/50 dark:bg-slate-800/50 rounded-xl my-4 border border-dashed border-gray-200 dark:border-slate-700">
+          <div className="py-8 text-center bg-gray-50/50 dark:bg-slate-800/50 rounded-2xl my-4 border border-dashed border-gray-200 dark:border-slate-700">
             <ShoppingBag className="w-10 h-10 text-gray-400 dark:text-slate-500 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">Your draft list is currently empty</p>
+            <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+              {household ? 'Shared draft list is currently empty' : 'Your draft list is currently empty'}
+            </p>
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-              Browse the catalog to add Atta, Rice, Pulses, Dairy and spices with 1-tap quantity controls.
+              Browse the starter catalog to add Atta, Rice, Pulses, Dairy and spices with 1-tap quantity controls.
             </p>
             <button
               onClick={() => onNavigate('/catalog')}
@@ -188,16 +240,16 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             </button>
           </div>
         ) : (
-          <div className="pt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-3.5 bg-emerald-50/70 dark:bg-slate-800/80 rounded-xl border border-emerald-100 dark:border-slate-700">
+          <div className="pt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <div className="p-3.5 bg-emerald-50/70 dark:bg-slate-800/80 rounded-2xl border border-emerald-100 dark:border-slate-700">
               <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Distinct Items</span>
               <p className="text-xl font-black text-emerald-900 dark:text-white mt-0.5">{items.length}</p>
             </div>
-            <div className="p-3.5 bg-emerald-50/70 dark:bg-slate-800/80 rounded-xl border border-emerald-100 dark:border-slate-700">
+            <div className="p-3.5 bg-emerald-50/70 dark:bg-slate-800/80 rounded-2xl border border-emerald-100 dark:border-slate-700">
               <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Total Items Qty</span>
               <p className="text-xl font-black text-emerald-900 dark:text-white mt-0.5">{itemCount}</p>
             </div>
-            <div className="p-3.5 bg-emerald-50/70 dark:bg-slate-800/80 rounded-xl border border-emerald-100 dark:border-slate-700 col-span-2">
+            <div className="p-3.5 bg-emerald-50/70 dark:bg-slate-800/80 rounded-2xl border border-emerald-100 dark:border-slate-700 col-span-2">
               <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Estimated Budget</span>
               <p className="text-xl font-black text-emerald-900 dark:text-white mt-0.5">
                 {estimatedTotal > 0 ? `₹${estimatedTotal.toLocaleString('en-IN')}` : 'Not set'}
@@ -207,9 +259,32 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         )}
       </div>
 
+      {/* ── No Shared Household Promotional Section ── */}
+      {!household && (
+        <div className="bg-gradient-to-r from-emerald-900/10 via-teal-900/10 to-slate-900/10 dark:from-emerald-950/40 dark:to-slate-900/60 rounded-3xl p-6 border border-emerald-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2 text-emerald-700 dark:text-emerald-400">
+              <Users className="w-5 h-5" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">Shared Family Grocery Lists</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300 max-w-md leading-relaxed">
+              Plan groceries together with your family. Join an existing household via an invite link or create one to share lists live.
+            </p>
+          </div>
+
+          <button
+            onClick={onOpenHouseholdSetup}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition-all flex items-center space-x-2 shrink-0"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Join or Create Household</span>
+          </button>
+        </div>
+      )}
+
       {/* Gap Detection Warnings Widget */}
       {gaps.length > 0 && (
-        <div className="bg-amber-50/80 dark:bg-amber-950/40 rounded-2xl p-5 border border-amber-200 dark:border-amber-900/60 shadow-sm">
+        <div className="bg-amber-50/80 dark:bg-amber-950/40 rounded-3xl p-5 md:p-6 border border-amber-200 dark:border-amber-900/60 shadow-sm">
           <div className="flex items-center space-x-2 mb-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
             <h3 className="text-base font-bold text-amber-900 dark:text-amber-200">
@@ -221,7 +296,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {gaps.map((gap) => (
-              <div key={gap.catalogItemId} className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-amber-200/80 dark:border-amber-900/60 shadow-sm flex flex-col justify-between">
+              <div key={gap.catalogItemId} className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-amber-200/80 dark:border-amber-900/60 shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-800 dark:text-amber-300">{gap.name}</span>
@@ -235,7 +310,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 </div>
                 <button
                   onClick={() => applyGapSuggestion(gap)}
-                  className="mt-3 w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                  className="mt-3 w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer"
                 >
                   + Add {gap.suggestedQuantity} {gap.defaultUnit}
                 </button>
@@ -246,7 +321,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       )}
 
       {/* Recent History Strip */}
-      <div className="bg-white dark:bg-slate-900/90 rounded-2xl p-6 border border-gray-100 dark:border-slate-800 shadow-sm">
+      <div className="bg-white dark:bg-slate-900/90 rounded-3xl p-6 border border-gray-100 dark:border-slate-800 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
             <HistoryIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -273,16 +348,18 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               <div
                 key={list.id}
                 onClick={() => onNavigate('/history')}
-                className="p-4 rounded-xl border border-gray-200 dark:border-slate-800 hover:border-emerald-500 hover:shadow-md transition-all cursor-pointer bg-gray-50/50 dark:bg-slate-800/50"
+                className="p-4 rounded-2xl border border-gray-200 dark:border-slate-800 hover:border-emerald-500 hover:shadow-md transition-all cursor-pointer bg-gray-50/50 dark:bg-slate-800/50 flex flex-col justify-between"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-gray-500 dark:text-slate-400">{list.listMonth}</span>
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 capitalize">
-                    {list.status}
-                  </span>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-slate-400">{list.listMonth}</span>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 capitalize">
+                      {list.status}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">{list.title}</h4>
                 </div>
-                <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">{list.title}</h4>
-                <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
+                <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">
                   Created {new Date(list.createdAt).toLocaleDateString()}
                 </p>
               </div>
@@ -290,6 +367,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </div>
         )}
       </div>
+
+      {/* Members Modal */}
+      <HouseholdMembersModal
+        isOpen={showMembersModal}
+        onClose={() => setShowMembersModal(false)}
+        onOpenInvite={onOpenHouseholdSetup}
+      />
 
       {/* Custom Delete Draft Modal */}
       {showDeleteDraftModal && (

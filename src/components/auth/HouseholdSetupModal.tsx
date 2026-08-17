@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Key, ArrowRight, AlertCircle, X, Loader2, CheckCircle2 } from 'lucide-react';
+import { Users, Plus, Key, ArrowRight, AlertCircle, X, Loader2, CheckCircle2, Sparkles } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { householdRepository } from '../../repositories/remote/householdRepository';
 
@@ -22,17 +22,15 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isLeaveAndJoining, setIsLeaveAndJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [joinedSuccess, setJoinedSuccess] = useState<{ householdName: string; isCreate: boolean } | null>(null);
 
   const { user, household, fetchUserHousehold } = useAuthStore();
 
   // Sync defaultInviteCode into state whenever the modal opens or the code changes.
-  // useState only initialises once at component mount (when the code is still ''),
-  // so we need useEffect to pick up later prop changes.
   useEffect(() => {
     if (isOpen) {
       setError(null);
-      setSuccessMessage(null);
+      setJoinedSuccess(null);
       if (defaultInviteCode) {
         setInviteCode(defaultInviteCode);
         setActiveTab('join');
@@ -59,10 +57,9 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      await householdRepository.createHousehold(householdName, user.id);
+      const created = await householdRepository.createHousehold(householdName, user.id);
       await fetchUserHousehold();
-      setSuccessMessage(`Household "${householdName.trim()}" created successfully!`);
-      setTimeout(() => { onSuccess?.(); onClose(); }, 1200);
+      setJoinedSuccess({ householdName: created.household.name, isCreate: true });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create household');
     } finally {
@@ -78,8 +75,7 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
     try {
       const result = await householdRepository.redeemInvite(extractCode(inviteCode));
       await fetchUserHousehold();
-      setSuccessMessage(`Joined household "${result.householdName}"!`);
-      setTimeout(() => { onSuccess?.(); onClose(); }, 1200);
+      setJoinedSuccess({ householdName: result.householdName, isCreate: false });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to join household');
     } finally {
@@ -89,7 +85,7 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
 
   /**
    * One-tap: leaves the current household then immediately retries the join.
-   * Shown only when the RPC error is "already a member of a household".
+   * Appears when the RPC returns "already a member of a household".
    */
   const handleLeaveAndJoin = async () => {
     if (!user || !household) return;
@@ -99,13 +95,17 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
       await householdRepository.leaveHousehold(household.id, user.id);
       const result = await householdRepository.redeemInvite(extractCode(inviteCode));
       await fetchUserHousehold();
-      setSuccessMessage(`Left previous household and joined "${result.householdName}"!`);
-      setTimeout(() => { onSuccess?.(); onClose(); }, 1400);
+      setJoinedSuccess({ householdName: result.householdName, isCreate: false });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to leave and join household');
     } finally {
       setIsLeaveAndJoining(false);
     }
+  };
+
+  const handleFinish = () => {
+    onSuccess?.();
+    onClose();
   };
 
   const isAlreadyMemberError = Boolean(error?.toLowerCase().includes('already a member'));
@@ -123,150 +123,204 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        {/* Header */}
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl shadow-md shadow-emerald-500/20">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-black text-gray-900 dark:text-white">Household Setup</h2>
-            <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
-              Create a new household or join your family
-            </p>
-          </div>
-        </div>
-
-        {/* Tab switcher */}
-        <div className="grid grid-cols-2 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl">
-          {(['create', 'join'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => { setActiveTab(tab); setError(null); }}
-              className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                activeTab === tab
-                  ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              {tab === 'create' ? 'Create Household' : 'Join with Code'}
-            </button>
-          ))}
-        </div>
-
-        {/* Success state */}
-        {successMessage ? (
-          <div className="p-4 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-center space-y-2">
-            <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-            <p className="text-xs font-bold text-emerald-900 dark:text-emerald-300">{successMessage}</p>
-          </div>
-
-        ) : activeTab === 'create' ? (
-          /* ── Create Household ── */
-          <form onSubmit={handleCreate} className="space-y-4">
-            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
-              Create a shared household. You will be the owner and can invite family members using an invite link.
-            </p>
-
-            <div className="space-y-1.5">
-              <label htmlFor="household-name" className="block text-xs font-bold text-gray-700 dark:text-slate-300">
-                Household Name
-              </label>
-              <input
-                id="household-name"
-                type="text"
-                required
-                value={householdName}
-                onChange={(e) => setHouseholdName(e.target.value)}
-                placeholder="e.g. The Sharma Family, 402 Palm Heights"
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
+        {/* ── CELEBRATION / SUCCESS STATE (REQUIREMENT 7) ── */}
+        {joinedSuccess ? (
+          <div className="text-center space-y-5 py-2 animate-scale-up">
+            <div className="w-16 h-16 bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 rounded-3xl mx-auto flex items-center justify-center text-white shadow-xl shadow-emerald-500/30">
+              <CheckCircle2 className="w-9 h-9" />
             </div>
 
-            {error && (
-              <div className="p-3 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 rounded-xl text-xs font-semibold text-red-700 dark:text-red-300 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+            <div className="space-y-2">
+              <span className="inline-flex items-center space-x-1 px-3 py-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-xs font-black uppercase tracking-wider rounded-full">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{joinedSuccess.isCreate ? 'Household Created!' : "You're in!"}</span>
+              </span>
+
+              <h2 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">
+                {joinedSuccess.isCreate ? 'Ready for live sharing' : "You've joined:"}
+              </h2>
+
+              <div className="p-4 bg-emerald-50/90 dark:bg-emerald-950/50 rounded-2xl border border-emerald-200 dark:border-emerald-800 text-center space-y-1">
+                <p className="text-lg font-black text-emerald-950 dark:text-emerald-100">
+                  🏠 {joinedSuccess.householdName}
+                </p>
+                <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                  {joinedSuccess.isCreate
+                    ? 'Your family household is active. You can now invite members and plan groceries together in real time.'
+                    : 'Your shared grocery lists and live sync are now active on your device.'}
+                </p>
               </div>
-            )}
+            </div>
 
             <button
-              type="submit"
-              disabled={isLoading || !householdName.trim()}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+              onClick={handleFinish}
+              className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-black text-sm rounded-2xl shadow-xl shadow-emerald-600/30 cursor-pointer transition-all flex items-center justify-center space-x-2"
             >
-              {isLoading
-                ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Creating Household...</span></>
-                : <><Plus className="w-4 h-4" /><span>Create Household</span></>
-              }
+              <span>VIEW SHARED GROCERY</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
-          </form>
-
+          </div>
         ) : (
-          /* ── Join with Code ── */
-          <form onSubmit={handleJoin} className="space-y-4">
-            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
-              Paste the invite code or link shared with you by your household owner.
-            </p>
-
-            <div className="space-y-1.5">
-              <label htmlFor="invite-code" className="block text-xs font-bold text-gray-700 dark:text-slate-300">
-                Invite Code or Link
-              </label>
-              <div className="relative">
-                <Key className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  id="invite-code"
-                  type="text"
-                  required
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                  placeholder="Paste invite link or code (e.g. aB3-9xQ_)"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                />
+          <>
+            {/* Header */}
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl shadow-md shadow-emerald-500/20">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-gray-900 dark:text-white">Household Setup</h2>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Create a new household or join your family</p>
               </div>
             </div>
 
-            {/* Error block — amber + "Leave & Join" CTA when user is already in a household */}
-            {error && (
-              <div className="rounded-xl border overflow-hidden">
-                <div className={`p-3 text-xs font-semibold flex items-start gap-2 ${
-                  isAlreadyMemberError
-                    ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-                    : 'bg-red-50 dark:bg-red-950/60 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-                }`}>
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{error}</span>
+            {/* Tab switcher */}
+            <div className="grid grid-cols-2 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl">
+              {(['create', 'join'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => { setActiveTab(tab); setError(null); }}
+                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    activeTab === tab
+                      ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                      : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  {tab === 'create' ? 'Create Household' : 'Join with Code'}
+                </button>
+              ))}
+            </div>
+
+            {activeTab === 'create' ? (
+              /* ── Create Household ── */
+              <form onSubmit={handleCreate} className="space-y-4">
+                <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+                  Create a shared household. You will be the owner and can invite family members using an invite link.
+                </p>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="household-name" className="block text-xs font-bold text-gray-700 dark:text-slate-300">
+                    Household Name
+                  </label>
+                  <input
+                    id="household-name"
+                    type="text"
+                    required
+                    value={householdName}
+                    onChange={(e) => setHouseholdName(e.target.value)}
+                    placeholder="e.g. The Sharma Family, 402 Palm Heights"
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
                 </div>
 
-                {/* One-tap shortcut: leave current household and immediately join the new one */}
-                {isAlreadyMemberError && household && (
-                  <button
-                    type="button"
-                    onClick={handleLeaveAndJoin}
-                    disabled={isLeaveAndJoining}
-                    className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
-                  >
-                    {isLeaveAndJoining
-                      ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Leaving &amp; Joining...</span></>
-                      : <><ArrowRight className="w-4 h-4" /><span>Leave current household &amp; Join this one</span></>
-                    }
-                  </button>
+                {error && (
+                  <div className="p-3 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 rounded-xl text-xs font-semibold text-red-700 dark:text-red-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{error}</span>
+                  </div>
                 )}
-              </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={isLoading || isLeaveAndJoining || !inviteCode.trim()}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
-            >
-              {isLoading
-                ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Joining Household...</span></>
-                : <><span>Join Household</span><ArrowRight className="w-4 h-4" /></>
-              }
-            </button>
-          </form>
+                <button
+                  type="submit"
+                  disabled={isLoading || !householdName.trim()}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Creating Household...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>Create Household</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              /* ── Join with Code ── */
+              <form onSubmit={handleJoin} className="space-y-4">
+                <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+                  Paste the invite code or link shared with you by your household owner.
+                </p>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="invite-code" className="block text-xs font-bold text-gray-700 dark:text-slate-300">
+                    Invite Code or Link
+                  </label>
+                  <div className="relative">
+                    <Key className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      id="invite-code"
+                      type="text"
+                      required
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value)}
+                      placeholder="Paste invite link or code (e.g. aB3-9xQ_)"
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-medium text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Error block — amber + Leave & Join CTA when user is already in a household */}
+                {error && (
+                  <div className="rounded-xl border overflow-hidden">
+                    <div
+                      className={`p-3 text-xs font-semibold flex items-start gap-2 ${
+                        isAlreadyMemberError
+                          ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                          : 'bg-red-50 dark:bg-red-950/60 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+                      }`}
+                    >
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+
+                    {/* One-tap shortcut: leave current household and immediately join the new one */}
+                    {isAlreadyMemberError && household && (
+                      <button
+                        type="button"
+                        onClick={handleLeaveAndJoin}
+                        disabled={isLeaveAndJoining}
+                        className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 active:brightness-95 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
+                      >
+                        {isLeaveAndJoining ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Leaving &amp; Joining...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ArrowRight className="w-4 h-4" />
+                            <span>Leave current household &amp; Join this one</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isLoading || isLeaveAndJoining || !inviteCode.trim()}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Joining Household...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Join Household</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -12,6 +12,7 @@ interface AuthState {
   session: Session | null;
   household: Household | null;
   membership: HouseholdMember | null;
+  members: HouseholdMember[];
   isLoading: boolean;
   isInitialized: boolean;
   error: string | null;
@@ -26,6 +27,7 @@ interface AuthState {
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   fetchUserHousehold: () => Promise<void>;
+  fetchHouseholdMembers: () => Promise<HouseholdMember[]>;
   setHousehold: (household: Household | null, membership: HouseholdMember | null) => void;
   clearError: () => void;
 }
@@ -35,6 +37,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   household: null,
   membership: null,
+  members: [],
   isLoading: false,
   isInitialized: false,
   error: null,
@@ -58,7 +61,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ session, user: session.user });
         await get().fetchUserHousehold();
       } else {
-        set({ session: null, user: null, household: null, membership: null });
+        set({ session: null, user: null, household: null, membership: null, members: [] });
       }
 
       // Listen for subsequent auth state changes (sign in, token refresh, sign out)
@@ -70,7 +73,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             await get().fetchUserHousehold();
           } else {
             realtimeSync.unsubscribe();
-            set({ household: null, membership: null });
+            set({ household: null, membership: null, members: [] });
           }
         } else if (newSession) {
           set({ session: newSession });
@@ -355,7 +358,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }
           useDraftListStore.setState({ currentList: null, items: [], isLoading: false, error: null });
         }
-        set({ household: null, membership: null });
+        set({ household: null, membership: null, members: [] });
         return;
       }
 
@@ -383,9 +386,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const household = householdData as Household;
 
+      // Fetch all members of this household
+      let members: HouseholdMember[] = [];
+      const { data: membersData } = await supabase
+        .from('household_members')
+        .select('*')
+        .eq('household_id', household.id);
+
+      if (membersData) {
+        members = membersData.map((m: any) => ({
+          id: m.id,
+          household_id: m.household_id,
+          user_id: m.user_id,
+          role: m.role as MemberRole,
+          joined_at: m.joined_at,
+          email: m.user_id === user.id ? user.email : undefined,
+        }));
+      }
+
       set({
         household,
         membership,
+        members,
       });
 
       // Hydrate local cache, subscribe to Realtime, then reload draft list store
@@ -398,13 +420,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  fetchHouseholdMembers: async () => {
+    if (!supabase) return [];
+    const { household } = get();
+    if (!household) {
+      set({ members: [] });
+      return [];
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('household_members')
+        .select('*')
+        .eq('household_id', household.id);
+
+      if (error || !data) return get().members;
+
+      const currentUser = get().user;
+      const members: HouseholdMember[] = data.map((m: any) => ({
+        id: m.id,
+        household_id: m.household_id,
+        user_id: m.user_id,
+        role: m.role as MemberRole,
+        joined_at: m.joined_at,
+        email: currentUser && m.user_id === currentUser.id ? currentUser.email : undefined,
+      }));
+
+      set({ members });
+      return members;
+    } catch (err) {
+      console.error('Failed to fetch household members:', err);
+      return get().members;
+    }
+  },
+
   setHousehold: (household, membership) => {
-    set({ household, membership });
+    set({ household, membership, members: membership ? [membership] : [] });
     if (household) {
       syncManager.pullHouseholdData(household.id)
         .then(() => useDraftListStore.getState().loadDraftList())
         .catch(() => {});
       realtimeSync.subscribeHousehold(household.id);
+      get().fetchHouseholdMembers();
     } else {
       realtimeSync.unsubscribe();
     }

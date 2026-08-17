@@ -10,6 +10,8 @@ import { flagUnusualQuantity } from '../../services/suggestionEngine';
 import type { Category, GroceryList, ListItem } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 interface ListDetailPageProps {
   listId: string;
@@ -52,6 +54,7 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
   const [pendingDraftNavigation, setPendingDraftNavigation] = useState<boolean>(false);
 
   const { loadDraftList } = useDraftListStore();
+  const household = useAuthStore((state) => state.household);
 
   const fetchDetail = useCallback(async () => {
     setIsLoading(true);
@@ -213,6 +216,9 @@ export const ListDetailPage: React.FC<ListDetailPageProps> = ({
 
   return (
     <div className="space-y-6 pb-20 animate-fade-in">
+      {/* Household Header (when active) */}
+      {household && <HouseholdHeader compact onNavigate={onNavigate} />}
+
       {/* Top Navigation */}
       <div className="flex items-center justify-between">
         <button

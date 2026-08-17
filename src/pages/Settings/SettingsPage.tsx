@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import type { UserPreference, MeasurementSystem, HouseholdMember } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { applyAppTheme } from '../../utils/theme';
+import { LeaveHouseholdModal } from '../../components/ui/LeaveHouseholdModal';
 
 interface SettingsPageProps {
   onNavigate: (path: any) => void;
@@ -26,11 +27,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [measurementSystem, setMeasurementSystem] = useState<MeasurementSystem>('metric');
 
   // Household & Auth management state
-  const { user, household, membership, signOut, fetchUserHousehold } = useAuthStore();
+  const { user, household, membership, signOut } = useAuthStore();
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [isCopiedInvite, setIsCopiedInvite] = useState<boolean>(false);
   const [isGeneratingInvite, setIsGeneratingInvite] = useState<boolean>(false);
   const [isRevokingInvite, setIsRevokingInvite] = useState<boolean>(false);
+  const [showLeaveModal, setShowLeaveModal] = useState<boolean>(false);
 
   const loadPrefs = async () => {
     setIsLoading(true);
@@ -116,16 +118,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleLeaveHousehold = async () => {
-    if (!household || !user || !confirm('Leave this household? You will switch to your private local lists.')) return;
-    try {
-      await householdRepository.leaveHousehold(household.id, user.id);
-      await fetchUserHousehold();
-      setMessage({ text: 'Left household successfully', type: 'success' });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to leave household';
-      setMessage({ text: msg, type: 'error' });
-    }
+  const handleLeaveHousehold = () => {
+    setShowLeaveModal(true);
   };
 
   const handleRevokeInvites = async () => {
@@ -409,32 +403,58 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 Household Members ({members.length})
               </h4>
 
-              <div className="divide-y divide-gray-100 dark:divide-slate-800 border border-gray-100 dark:border-slate-800 rounded-xl overflow-hidden bg-gray-50/50 dark:bg-slate-800/40">
-                {members.map((m) => (
-                  <div key={m.id} className="p-3 flex items-center justify-between text-xs">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-slate-700 text-emerald-800 dark:text-emerald-300 font-black flex items-center justify-center text-xs">
-                        {m.role === 'owner' ? '★' : '👤'}
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-900 dark:text-white">
-                          {m.user_id === user.id ? `${user.email} (You)` : (m.email || `Member (${m.user_id.slice(0, 6)}...)`)}
-                        </p>
-                        <p className="text-[10px] text-gray-400 capitalize">{m.role} • Joined {new Date(m.joined_at).toLocaleDateString()}</p>
-                      </div>
-                    </div>
+              <div className="divide-y divide-gray-100 dark:divide-slate-800 border border-gray-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-gray-50/50 dark:bg-slate-800/40">
+                {members.map((m) => {
+                  const isThisOwner = m.role === 'owner';
+                  const isCurrentUser = m.user_id === user.id;
+                  const memberName = isCurrentUser
+                    ? `${user.user_metadata?.full_name || user.email?.split('@')[0]} (You)`
+                    : m.email
+                    ? m.email.split('@')[0]
+                    : `Member (${m.user_id.slice(0, 6)}…)`;
 
-                    {isOwner && m.user_id !== user.id && (
-                      <button
-                        onClick={() => handleRemoveMember(m.user_id)}
-                        aria-label="Remove member"
-                        className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  return (
+                    <div key={m.id} className="p-3.5 flex items-center justify-between text-xs hover:bg-white/50 dark:hover:bg-slate-800/80 transition-colors">
+                      <div className="flex items-center space-x-3">
+                        <div
+                          className={`w-8 h-8 rounded-full font-black flex items-center justify-center text-xs text-white shadow-sm ${
+                            isThisOwner
+                              ? 'bg-gradient-to-br from-amber-400 to-amber-600'
+                              : 'bg-gradient-to-br from-emerald-500 to-teal-600'
+                          }`}
+                        >
+                          {isThisOwner ? '👑' : memberName.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <p className="font-bold text-gray-900 dark:text-white">
+                              {memberName}
+                            </p>
+                            {isCurrentUser && (
+                              <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.2 rounded">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-gray-400 capitalize">
+                            {m.role} • Joined {new Date(m.joined_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      {isOwner && m.user_id !== user.id && (
+                        <button
+                          onClick={() => handleRemoveMember(m.user_id)}
+                          aria-label="Remove member"
+                          title="Remove member from household"
+                          className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -647,6 +667,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Leave Household Modal */}
+      <LeaveHouseholdModal
+        isOpen={showLeaveModal}
+        onClose={() => setShowLeaveModal(false)}
+        onSuccess={() => {
+          setShowLeaveModal(false);
+          setMessage({ text: 'Left household successfully', type: 'success' });
+        }}
+      />
     </div>
   );
 };

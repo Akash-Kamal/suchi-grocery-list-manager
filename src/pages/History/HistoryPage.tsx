@@ -6,6 +6,8 @@ import type { GroceryList } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
+import { useAuthStore } from '../../stores/useAuthStore';
 
 interface HistoryPageProps {
   onNavigate: (path: '/' | '/catalog' | '/review' | '/history' | '/settings') => void;
@@ -13,6 +15,7 @@ interface HistoryPageProps {
 }
 
 export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate, onSelectList }) => {
+  const { household } = useAuthStore();
   const [pastLists, setPastLists] = useState<GroceryList[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,10 +84,19 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate, onSelectLi
 
   return (
     <div className="space-y-6 pb-20 animate-fade-in">
-      <div className="bg-white dark:bg-slate-900/90 rounded-2xl p-6 border border-emerald-100 dark:border-slate-800 shadow-sm">
-        <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">Monthly Grocery Lists & History</h1>
-        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-          Review, edit, delete, export PDFs, share via WhatsApp, or repeat past monthly lists.
+      {/* Household Header (when active) */}
+      {household && <HouseholdHeader compact onNavigate={onNavigate} />}
+
+      <div className="bg-white dark:bg-slate-900/90 rounded-3xl p-6 border border-emerald-100 dark:border-slate-800 shadow-sm">
+        <div className="flex items-center space-x-2 mb-1">
+          <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">
+            {household ? 'Shared Household Grocery Lists & History' : 'Monthly Grocery Lists & History'}
+          </h1>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-slate-400">
+          {household
+            ? `Review, edit, export PDFs, share via WhatsApp, or repeat past monthly lists from ${household.name}.`
+            : 'Review, edit, delete, export PDFs, share via WhatsApp, or repeat past monthly lists.'}
         </p>
       </div>
 
@@ -106,10 +118,17 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigate, onSelectLi
             >
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="inline-flex items-center space-x-1 text-xs font-bold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-md">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>{list.listMonth}</span>
-                  </span>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="inline-flex items-center space-x-1 text-xs font-bold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-md">
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>{list.listMonth}</span>
+                    </span>
+                    {household && (
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                        🏠 Shared
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center space-x-2">
                     <span
                       className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full capitalize ${
