@@ -36,9 +36,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
   const ownerMember = members.find((m) => m.role === 'owner');
   const ownerDisplayName = isOwner
     ? 'You'
-    : ownerMember?.email
-    ? ownerMember.email.split('@')[0]
-    : 'Household Owner';
+    : (ownerMember as any)?.name || (ownerMember?.email ? ownerMember.email.split('@')[0] : 'Household Owner');
 
   const fetchData = useCallback(async () => {
     setIsHomeLoading(true);

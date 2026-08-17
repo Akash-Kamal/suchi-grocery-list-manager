@@ -32,9 +32,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   const ownerMember = members.find((m) => m.role === 'owner');
   const ownerDisplayName = isOwner
     ? 'You'
-    : ownerMember?.email
-    ? ownerMember.email.split('@')[0]
-    : 'Household Owner';
+    : (ownerMember as any)?.name || (ownerMember?.email ? ownerMember.email.split('@')[0] : 'Household Owner');
 
   const navItems = [
     { path: '/' as TabPath, label: 'Home', icon: Home },

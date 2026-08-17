@@ -4,6 +4,7 @@ import { supabase, checkIsSupabaseConfigured } from '../lib/supabaseClient';
 import type { Household, HouseholdMember, MemberRole } from '../types/database';
 import { syncManager } from '../services/syncManager';
 import { realtimeSync } from '../services/realtimeSync';
+import { householdRepository } from '../repositories/remote/householdRepository';
 import { db } from '../db';
 import { useDraftListStore } from './useDraftListStore';
 
@@ -329,22 +330,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!user) return;
 
     try {
-      // Find user's membership row
-      const { data: memberData, error: memberError } = await supabase
+      // Find user's membership row (ordered by newest first, to avoid PGRST116 if old memberships lingered)
+      const { data: memberRows, error: memberError } = await supabase
         .from('household_members')
         .select('*')
         .eq('user_id', user.id)
-        .maybeSingle();
+        .order('joined_at', { ascending: false });
 
       if (memberError) {
         console.error('Error fetching household membership:', memberError);
         return;
       }
 
-      if (!memberData) {
+      if (!memberRows || memberRows.length === 0) {
         realtimeSync.unsubscribe();
-        // If user was previously in a household, clear synced data from local Dexie
-        // so they don't see the shared list after leaving.
         const hadHousehold = get().household !== null;
         if (hadHousehold) {
           try {
@@ -362,6 +361,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
 
+      const memberData = memberRows[0];
       const membership: HouseholdMember = {
         id: memberData.id,
         household_id: memberData.household_id,
@@ -378,7 +378,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .eq('id', memberData.household_id)
         .single();
 
-      if (householdError) {
+      if (householdError || !householdData) {
         console.error('Error fetching household details:', householdError);
         set({ membership, household: null });
         return;
@@ -386,28 +386,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const household = householdData as Household;
 
-      // Fetch all members of this household
-      let members: HouseholdMember[] = [];
-      const { data: membersData } = await supabase
-        .from('household_members')
-        .select('*')
-        .eq('household_id', household.id);
-
-      if (membersData) {
-        members = membersData.map((m: any) => ({
-          id: m.id,
-          household_id: m.household_id,
-          user_id: m.user_id,
-          role: m.role as MemberRole,
-          joined_at: m.joined_at,
-          email: m.user_id === user.id ? user.email : undefined,
-        }));
-      }
+      // Fetch all members of this household with real names & emails via RPC
+      const members = await householdRepository.getMembers(household.id);
 
       set({
         household,
         membership,
-        members,
+        members: members.length > 0 ? members : [membership],
       });
 
       // Hydrate local cache, subscribe to Realtime, then reload draft list store
@@ -424,7 +409,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   fetchHouseholdMembers: async () => {
-    if (!supabase) return [];
     const { household } = get();
     if (!household) {
       set({ members: [] });
@@ -432,23 +416,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     try {
-      const { data, error } = await supabase
-        .from('household_members')
-        .select('*')
-        .eq('household_id', household.id);
-
-      if (error || !data) return get().members;
-
-      const currentUser = get().user;
-      const members: HouseholdMember[] = data.map((m: any) => ({
-        id: m.id,
-        household_id: m.household_id,
-        user_id: m.user_id,
-        role: m.role as MemberRole,
-        joined_at: m.joined_at,
-        email: currentUser && m.user_id === currentUser.id ? currentUser.email : undefined,
-      }));
-
+      const members = await householdRepository.getMembers(household.id);
       set({ members });
       return members;
     } catch (err) {

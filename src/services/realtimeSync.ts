@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { db } from '../db';
 import { useDraftListStore } from '../stores/useDraftListStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { mapRemoteList, mapRemoteListItem } from '../repositories/remote/remoteListRepository';
 
@@ -42,6 +43,19 @@ class RealtimeSyncService {
         },
         async (payload) => {
           await this.handleItemChange(payload);
+        }
+      )
+      // 3. Listen for household_members changes (member joins, leaves, role updates)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'household_members',
+          filter: `household_id=eq.${householdId}`,
+        },
+        async () => {
+          await useAuthStore.getState().fetchHouseholdMembers();
         }
       )
       .subscribe((status) => {

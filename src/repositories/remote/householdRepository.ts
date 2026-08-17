@@ -5,16 +5,54 @@ import { localDataMigrator } from '../../services/localDataMigrator';
 export class HouseholdRepository {
   /**
    * Creates a new household and inserts the creator as the 'owner' member.
+   * Uses atomic Postgres RPC (create_household) with fallback.
    * Automatically migrates any existing local draft lists to the remote household.
    */
   async createHousehold(name: string, userId: string): Promise<{ household: Household; membership: HouseholdMember }> {
     if (!supabase) throw new Error('Supabase client not initialized');
 
-    // 1. Insert household row
+    const cleanName = name.trim();
+
+    // 1. Try atomic Postgres RPC
+    const { data: rpcData, error: rpcError } = await supabase.rpc('create_household', {
+      p_name: cleanName,
+    });
+
+    if (!rpcError && rpcData && typeof rpcData === 'object') {
+      if ('error' in rpcData && rpcData.error) {
+        throw new Error(String(rpcData.error));
+      }
+      if ('household_id' in rpcData && rpcData.household_id) {
+        const household: Household = {
+          id: String(rpcData.household_id),
+          name: String(rpcData.household_name || cleanName),
+          created_by: userId,
+          created_at: new Date().toISOString(),
+        };
+        const membership: HouseholdMember = {
+          id: String(rpcData.membership_id || `mem-${Date.now()}`),
+          household_id: household.id,
+          user_id: userId,
+          role: 'owner',
+          joined_at: String(rpcData.joined_at || new Date().toISOString()),
+        };
+
+        // Auto-upload local lists/items
+        try {
+          await localDataMigrator.migrateToHousehold(household.id);
+        } catch (migErr) {
+          console.warn('Auto-migration on household create warning:', migErr);
+        }
+
+        return { household, membership };
+      }
+    }
+
+    // 2. Direct Fallback
     const { data: householdData, error: householdError } = await supabase
       .from('households')
       .insert({
-        name: name.trim(),
+        name: cleanName,
         created_by: userId,
       })
       .select()
@@ -26,7 +64,6 @@ export class HouseholdRepository {
 
     const household: Household = householdData;
 
-    // 2. Insert creator as owner in household_members
     const { data: memberData, error: memberError } = await supabase
       .from('household_members')
       .insert({
@@ -43,7 +80,6 @@ export class HouseholdRepository {
 
     const membership: HouseholdMember = memberData;
 
-    // 3. Automatically upload existing local lists/items to the new household
     try {
       await localDataMigrator.migrateToHousehold(household.id);
     } catch (migErr) {
@@ -147,11 +183,29 @@ export class HouseholdRepository {
   }
 
   /**
-   * Fetches all members of a household.
+   * Fetches all members of a household with real names and emails.
    */
   async getMembers(householdId: string): Promise<HouseholdMember[]> {
     if (!supabase) return [];
 
+    // 1. Try RPC get_household_members
+    const { data: rpcMembers, error: rpcError } = await supabase.rpc('get_household_members', {
+      p_household_id: householdId,
+    });
+
+    if (!rpcError && rpcMembers && Array.isArray(rpcMembers)) {
+      return rpcMembers.map((m: any) => ({
+        id: m.id,
+        household_id: m.household_id,
+        user_id: m.user_id,
+        role: m.role,
+        joined_at: m.joined_at,
+        email: m.email || undefined,
+        name: m.display_name || undefined,
+      }));
+    }
+
+    // 2. Direct table fallback
     const { data, error } = await supabase
       .from('household_members')
       .select('*')

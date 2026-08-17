@@ -409,9 +409,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   const isCurrentUser = m.user_id === user.id;
                   const memberName = isCurrentUser
                     ? `${user.user_metadata?.full_name || user.email?.split('@')[0]} (You)`
-                    : m.email
-                    ? m.email.split('@')[0]
-                    : `Member (${m.user_id.slice(0, 6)}…)`;
+                    : (m as any).name || (m.email ? m.email.split('@')[0] : `Member (${m.user_id.slice(0, 6)}…)`);
 
                   return (
                     <div key={m.id} className="p-3.5 flex items-center justify-between text-xs hover:bg-white/50 dark:hover:bg-slate-800/80 transition-colors">
@@ -437,7 +435,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                             )}
                           </div>
                           <p className="text-[10px] text-gray-400 capitalize">
-                            {m.role} • Joined {new Date(m.joined_at).toLocaleDateString()}
+                            {m.role} {m.email && !isCurrentUser ? `• ${m.email}` : ''} • Joined {new Date(m.joined_at).toLocaleDateString()}
                           </p>
                         </div>
                       </div>

@@ -28,9 +28,7 @@ export const HouseholdHeader: React.FC<HouseholdHeaderProps> = ({
   // Derive owner's display name
   const ownerDisplayName = isOwner
     ? 'You'
-    : ownerMember?.email
-    ? ownerMember.email.split('@')[0]
-    : 'Household Owner';
+    : (ownerMember as any)?.name || (ownerMember?.email ? ownerMember.email.split('@')[0] : 'Household Owner');
 
   if (compact) {
     return (
