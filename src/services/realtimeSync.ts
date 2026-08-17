@@ -103,8 +103,21 @@ class RealtimeSyncService {
       const row = payload.new;
       if (!row) return;
 
-      // Verify this list belongs to a known list in local Dexie
-      const listExists = await db.groceryLists.get(row.list_id);
+      // Verify this list belongs to a known list in local Dexie; if missing, fetch it
+      let listExists = await db.groceryLists.get(row.list_id);
+      if (!listExists && supabase) {
+        const { data: remoteListRow } = await supabase
+          .from('grocery_lists')
+          .select('*')
+          .eq('id', row.list_id)
+          .maybeSingle();
+
+        if (remoteListRow) {
+          await db.groceryLists.put(mapRemoteList(remoteListRow));
+          listExists = await db.groceryLists.get(row.list_id);
+        }
+      }
+
       if (!listExists) return;
 
       const remoteItem = mapRemoteListItem(row);

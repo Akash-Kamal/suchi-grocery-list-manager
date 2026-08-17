@@ -1,9 +1,11 @@
 import { supabase } from '../../lib/supabaseClient';
 import type { Household, HouseholdMember, HouseholdInvite } from '../../types/database';
+import { localDataMigrator } from '../../services/localDataMigrator';
 
 export class HouseholdRepository {
   /**
    * Creates a new household and inserts the creator as the 'owner' member.
+   * Automatically migrates any existing local draft lists to the remote household.
    */
   async createHousehold(name: string, userId: string): Promise<{ household: Household; membership: HouseholdMember }> {
     if (!supabase) throw new Error('Supabase client not initialized');
@@ -40,6 +42,13 @@ export class HouseholdRepository {
     }
 
     const membership: HouseholdMember = memberData;
+
+    // 3. Automatically upload existing local lists/items to the new household
+    try {
+      await localDataMigrator.migrateToHousehold(household.id);
+    } catch (migErr) {
+      console.warn('Auto-migration on household create warning:', migErr);
+    }
 
     return { household, membership };
   }
@@ -173,11 +182,25 @@ export class HouseholdRepository {
   }
 
   /**
-   * Leave current household (for non-owner members).
+   * Leave current household (for members and owners).
+   * Uses Postgres RPC leave_household with direct table fallback.
    */
   async leaveHousehold(householdId: string, userId: string): Promise<void> {
     if (!supabase) throw new Error('Supabase client not initialized');
 
+    // 1. Try RPC
+    const { data: rpcData, error: rpcError } = await supabase.rpc('leave_household', {
+      p_household_id: householdId,
+    });
+
+    if (!rpcError && rpcData) {
+      if (typeof rpcData === 'object' && 'error' in rpcData && rpcData.error) {
+        throw new Error(String(rpcData.error));
+      }
+      return;
+    }
+
+    // 2. Direct fallback
     const { error } = await supabase
       .from('household_members')
       .delete()
@@ -188,13 +211,27 @@ export class HouseholdRepository {
       throw new Error(error.message || 'Failed to leave household');
     }
   }
+
   /**
    * Revokes all pending (not yet redeemed) invites for a household.
-   * Existing household members are NOT affected — only un-used invite codes are deleted.
+   * Uses Postgres RPC revoke_household_invites with direct fallback.
    */
   async revokeAllPendingInvites(householdId: string): Promise<void> {
     if (!supabase) throw new Error('Supabase client not initialized');
 
+    // 1. Try RPC
+    const { data: rpcData, error: rpcError } = await supabase.rpc('revoke_household_invites', {
+      p_household_id: householdId,
+    });
+
+    if (!rpcError && rpcData) {
+      if (typeof rpcData === 'object' && 'error' in rpcData && rpcData.error) {
+        throw new Error(String(rpcData.error));
+      }
+      return;
+    }
+
+    // 2. Direct fallback
     const { error } = await supabase
       .from('household_invites')
       .delete()
@@ -208,3 +245,4 @@ export class HouseholdRepository {
 }
 
 export const householdRepository = new HouseholdRepository();
+

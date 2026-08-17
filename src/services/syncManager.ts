@@ -162,6 +162,19 @@ class SyncManager {
           updatedAt: r.updated_at,
         }));
 
+        // Clean up any stale local draft lists with different IDs so the UI strictly points to the shared draft
+        const remoteDraft = remoteLists.find((r: any) => r.status === 'draft');
+        if (remoteDraft) {
+          const localDrafts = await db.groceryLists.where('status').equals('draft').toArray();
+          const staleDraftIds = localDrafts.filter(d => d.id !== remoteDraft.id).map(d => d.id);
+          if (staleDraftIds.length > 0) {
+            await db.groceryLists.bulkDelete(staleDraftIds);
+            for (const sId of staleDraftIds) {
+              await db.listItems.where('listId').equals(sId).delete();
+            }
+          }
+        }
+
         await db.groceryLists.bulkPut(localLists);
 
         // 2. Fetch list items for these lists
@@ -187,6 +200,15 @@ class SyncManager {
           }));
 
           await db.listItems.bulkPut(localItems);
+        }
+      } else {
+        // Remote has no lists yet. If local Dexie has an active draft with items, push it to Supabase!
+        const localDraft = await db.groceryLists.where('status').equals('draft').first();
+        if (localDraft) {
+          const localItems = await db.listItems.where('listId').equals(localDraft.id).toArray();
+          if (localItems.length > 0) {
+            await remoteListRepository.saveDraftList(householdId, localDraft, localItems);
+          }
         }
       }
 

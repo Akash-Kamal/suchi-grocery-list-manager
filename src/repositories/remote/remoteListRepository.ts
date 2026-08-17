@@ -144,10 +144,35 @@ export class RemoteListRepository {
     const now = new Date().toISOString();
     const updatedList = { ...list, updatedAt: now };
 
-    // 1. Upsert list
-    const { error: listError } = await supabase
+    // 1. Upsert list to Supabase
+    let remotePayload = mapLocalListToRemote(updatedList, householdId);
+    let { error: listError } = await supabase
       .from('grocery_lists')
-      .upsert(mapLocalListToRemote(updatedList, householdId));
+      .upsert(remotePayload);
+
+    // If duplicate draft constraint (another draft already exists for this household with a different ID),
+    // finalize previous drafts so the current draft becomes the single active draft
+    if (listError && listError.code === '23505') {
+      const { data: existingDrafts } = await supabase
+        .from('grocery_lists')
+        .select('id')
+        .eq('household_id', householdId)
+        .eq('status', 'draft');
+
+      if (existingDrafts && existingDrafts.length > 0) {
+        const otherIds = existingDrafts.filter((d: any) => d.id !== list.id).map((d: any) => d.id);
+        if (otherIds.length > 0) {
+          await supabase
+            .from('grocery_lists')
+            .update({ status: 'finalized', updated_at: now })
+            .in('id', otherIds);
+
+          // Retry upsert of the current draft
+          const retry = await supabase.from('grocery_lists').upsert(remotePayload);
+          listError = retry.error;
+        }
+      }
+    }
 
     if (listError) console.error('Remote save list error:', listError);
 
