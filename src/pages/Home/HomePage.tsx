@@ -30,6 +30,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     setHomeError(null);
     try {
       await loadDraftList();
+      const currentItems = useDraftListStore.getState().items;
       const recent = await historyRepository.getPastLists(4);
       setPastLists(recent);
 
@@ -38,7 +39,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       const catalogItems = await catalogRepository.getCatalogItems();
       const catalogMap = new Map(catalogItems.map((c) => [c.id, c]));
 
-      const draftItemIds = new Set(items.map((i) => i.catalogItemId).filter((id): id is string => Boolean(id)));
+      const draftItemIds = new Set(currentItems.map((i) => i.catalogItemId).filter((id): id is string => Boolean(id)));
 
       const candidates = recurringStats
         .map((stat) => {
@@ -65,7 +66,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     } finally {
       setIsHomeLoading(false);
     }
-  }, [items, loadDraftList]);
+  }, [loadDraftList]);
 
   useEffect(() => {
     fetchData();

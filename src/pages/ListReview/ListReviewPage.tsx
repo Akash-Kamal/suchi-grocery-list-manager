@@ -44,6 +44,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
   const initData = useCallback(async () => {
     try {
       await loadDraftList();
+      const currentItems = useDraftListStore.getState().items;
       const cats = await catalogRepository.getCategories();
       setCategories(cats);
 
@@ -60,7 +61,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
       }
       setMediansMap(medMap);
 
-      const draftItemIds = new Set(items.map((i) => i.catalogItemId).filter((id): id is string => Boolean(id)));
+      const draftItemIds = new Set(currentItems.map((i) => i.catalogItemId).filter((id): id is string => Boolean(id)));
 
       const candidates = recurringStats
         .map((stat) => {
@@ -84,7 +85,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
     } catch (err) {
       console.error('Failed to init review page:', err);
     }
-  }, [items, loadDraftList]);
+  }, [loadDraftList]);
 
   useEffect(() => {
     initData();
