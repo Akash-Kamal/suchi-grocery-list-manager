@@ -24,7 +24,7 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [joinedSuccess, setJoinedSuccess] = useState<{ householdName: string; isCreate: boolean } | null>(null);
 
-  const { user, household, fetchUserHousehold } = useAuthStore();
+  const { user, fetchUserHousehold } = useAuthStore();
 
   // Sync defaultInviteCode into state whenever the modal opens or the code changes.
   useEffect(() => {
@@ -84,20 +84,36 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
   };
 
   /**
-   * One-tap: leaves the current household then immediately retries the join.
-   * Appears when the RPC returns "already a member of a household".
+   * One-tap: atomically leaves current household and joins the new one via Postgres RPC.
    */
   const handleLeaveAndJoin = async () => {
-    if (!user || !household) return;
+    if (!user || !inviteCode.trim()) return;
     setIsLeaveAndJoining(true);
     setError(null);
     try {
-      await householdRepository.leaveHousehold(household.id, user.id);
-      const result = await householdRepository.redeemInvite(extractCode(inviteCode));
+      const result = await householdRepository.redeemInvite(extractCode(inviteCode), true);
       await fetchUserHousehold();
       setJoinedSuccess({ householdName: result.householdName, isCreate: false });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to leave and join household');
+      setError(err instanceof Error ? err.message : 'Failed to switch household');
+    } finally {
+      setIsLeaveAndJoining(false);
+    }
+  };
+
+  /**
+   * Directly leaves current household.
+   */
+  const handleLeaveCurrentOnly = async () => {
+    if (!user) return;
+    setIsLeaveAndJoining(true);
+    setError(null);
+    try {
+      await householdRepository.leaveCurrentHousehold();
+      await fetchUserHousehold();
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to leave household');
     } finally {
       setIsLeaveAndJoining(false);
     }
@@ -278,25 +294,35 @@ export const HouseholdSetupModal: React.FC<HouseholdSetupModalProps> = ({
                     </div>
 
                     {/* One-tap shortcut: leave current household and immediately join the new one */}
-                    {isAlreadyMemberError && household && (
-                      <button
-                        type="button"
-                        onClick={handleLeaveAndJoin}
-                        disabled={isLeaveAndJoining}
-                        className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 active:brightness-95 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
-                      >
-                        {isLeaveAndJoining ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Leaving &amp; Joining...</span>
-                          </>
-                        ) : (
-                          <>
-                            <ArrowRight className="w-4 h-4" />
-                            <span>Leave current household &amp; Join this one</span>
-                          </>
-                        )}
-                      </button>
+                    {isAlreadyMemberError && (
+                      <div className="p-3 bg-amber-500/10 border-t border-amber-200 dark:border-amber-800 space-y-2">
+                        <button
+                          type="button"
+                          onClick={handleLeaveAndJoin}
+                          disabled={isLeaveAndJoining}
+                          className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-60"
+                        >
+                          {isLeaveAndJoining ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Switching Households...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                              <span>Leave Current &amp; Join This Household</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLeaveCurrentOnly}
+                          disabled={isLeaveAndJoining}
+                          className="w-full py-1.5 text-center text-[11px] font-bold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer"
+                        >
+                          Or just leave current household
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

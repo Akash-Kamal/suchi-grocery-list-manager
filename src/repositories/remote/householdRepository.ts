@@ -77,9 +77,9 @@ export class HouseholdRepository {
 
   /**
    * Redeems an invite code to join a household.
-   * Uses direct secure Postgres RPC (redeem_household_invite) with Edge Function fallback.
+   * If leaveCurrent is true, automatically leaves any current household first in Postgres.
    */
-  async redeemInvite(inviteCode: string): Promise<{ householdId: string; householdName: string }> {
+  async redeemInvite(inviteCode: string, leaveCurrent = false): Promise<{ householdId: string; householdName: string }> {
     if (!supabase) throw new Error('Supabase client not initialized');
 
     // Robust cleaning in case a full URL or fragment is passed
@@ -98,6 +98,7 @@ export class HouseholdRepository {
     // 1. Try secure Postgres RPC function first (direct execution, 0ms cold start)
     const { data: rpcData, error: rpcError } = await supabase.rpc('redeem_household_invite', {
       p_invite_code: code,
+      p_leave_current: leaveCurrent,
     });
 
     if (!rpcError && rpcData) {
@@ -178,6 +179,25 @@ export class HouseholdRepository {
 
     if (error) {
       throw new Error(error.message || 'Failed to remove member');
+    }
+  }
+
+  /**
+   * Leaves whichever household the current authenticated user belongs to.
+   */
+  async leaveCurrentHousehold(): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized');
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('leave_current_household');
+    if (!rpcError && rpcData) {
+      if (typeof rpcData === 'object' && 'error' in rpcData && rpcData.error) {
+        throw new Error(String(rpcData.error));
+      }
+      return;
+    }
+
+    if (rpcError) {
+      throw new Error(rpcError.message || 'Failed to leave current household');
     }
   }
 
