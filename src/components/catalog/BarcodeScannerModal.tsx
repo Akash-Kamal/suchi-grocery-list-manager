@@ -92,10 +92,37 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const isProcessingScanRef = useRef<boolean>(false);
   const barcodeMapRef = useRef<Map<string, CatalogItem>>(new Map());
 
-  // Re-build lookup map whenever catalog items change
+  // Store latest callbacks in refs to prevent useEffect re-runs
+  const callbacksRef = useRef({
+    catalogItems,
+    onItemResolved,
+    onCustomItemRequested,
+    onSearchRequested,
+    onOnlineProductAddToList,
+    onOnlineProductAddToCatalog,
+    onOnlineProductAddToListAndCatalog,
+  });
+
   useEffect(() => {
+    callbacksRef.current = {
+      catalogItems,
+      onItemResolved,
+      onCustomItemRequested,
+      onSearchRequested,
+      onOnlineProductAddToList,
+      onOnlineProductAddToCatalog,
+      onOnlineProductAddToListAndCatalog,
+    };
     barcodeMapRef.current = buildBarcodeLookupMap(catalogItems);
-  }, [catalogItems]);
+  }, [
+    catalogItems,
+    onItemResolved,
+    onCustomItemRequested,
+    onSearchRequested,
+    onOnlineProductAddToList,
+    onOnlineProductAddToCatalog,
+    onOnlineProductAddToListAndCatalog,
+  ]);
 
   // Stop camera tracks cleanly
   const stopScanner = useCallback(async () => {
@@ -106,7 +133,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
         await scannerRef.current.clear();
       } catch (err) {
-        console.warn('Error stopping barcode scanner:', err);
+        console.warn('[SOOCHI Scanner] Stop warning:', err);
       } finally {
         scannerRef.current = null;
       }
@@ -120,6 +147,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       isProcessingScanRef.current = true;
 
       const normalized = normalizeBarcode(decodedText);
+      console.info('[SOOCHI Scanner] Decoded code:', normalized);
       setScannedCode(normalized);
 
       // Provide single haptic feedback if supported
@@ -127,7 +155,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         try {
           navigator.vibrate(50);
         } catch {
-          // Ignore unsupported / blocked vibration
+          // Ignore unsupported vibration
         }
       }
 
@@ -138,9 +166,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       setStatus('processing');
 
       // 1. Local O(1) exact catalog lookup first
-      const item = lookupCatalogItemByBarcode(normalized, catalogItems, barcodeMapRef.current);
+      const item = lookupCatalogItemByBarcode(normalized, callbacksRef.current.catalogItems, barcodeMapRef.current);
 
       if (item) {
+        console.info('[SOOCHI Scanner] Local match found:', item.name);
         setMatchedItem(item);
         setStatus('found');
         return;
@@ -149,12 +178,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       // If it looks like arbitrary QR with non-numeric text/URL, show QR state immediately
       const isArbitraryQR = /[a-zA-Z/:.?&=]/.test(normalized) && !/^\d+$/.test(normalized);
       if (isArbitraryQR) {
+        console.info('[SOOCHI Scanner] Arbitrary QR payload detected');
         setStatus('qr_detected');
         return;
       }
 
       // 2. Check offline status before online attempt
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        console.info('[SOOCHI Scanner] Client offline, skipping online lookup');
         setStatus('offline');
         return;
       }
@@ -162,22 +193,25 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       // 3. Fall back to online product lookup (Open Food Facts)
       setStatus('looking_up_online');
       try {
+        console.info('[SOOCHI Scanner] Querying online Open Food Facts for barcode:', normalized);
         const onlineProd = await lookupOnlineProductByBarcode(normalized);
         if (onlineProd) {
+          console.info('[SOOCHI Scanner] Online product resolved:', onlineProd.productName);
           setOnlineProduct(onlineProd);
           setStatus('online_product_found');
         } else {
+          console.info('[SOOCHI Scanner] Product not found online or locally');
           setStatus('not_found');
         }
       } catch (err) {
-        console.warn('Online barcode lookup failed:', err);
+        console.warn('[SOOCHI Scanner] Online barcode lookup failed:', err);
         setStatus('network_error');
       }
     },
-    [catalogItems, stopScanner]
+    [stopScanner]
   );
 
-  // Start live camera stream
+  // Start live camera stream with intelligent multi-platform fallback (Android Chrome + macOS Chrome/Safari)
   const startScanner = useCallback(async () => {
     setStatus('starting');
     setErrorMessage('');
@@ -190,12 +224,21 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('[SOOCHI Scanner] getUserMedia is not supported in this browser environment');
         setStatus('camera_unavailable');
         setErrorMessage('Camera access is not supported by this browser. You can still enter the barcode manually.');
         return;
       }
 
       await stopScanner();
+
+      // Ensure scanning container is in the DOM
+      const element = document.getElementById(SCAN_ELEMENT_ID);
+      if (!element) {
+        console.warn('[SOOCHI Scanner] Target DOM container not ready yet');
+        setStatus('starting');
+        return;
+      }
 
       const html5QrCode = new Html5Qrcode(SCAN_ELEMENT_ID, {
         formatsToSupport: SUPPORTED_FORMATS,
@@ -205,20 +248,77 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
       const config = {
         fps: 10,
-        qrbox: { width: 250, height: 250 },
+        qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+          const edge = Math.max(Math.floor(minEdge * 0.72), 180);
+          return { width: edge, height: edge };
+        },
         aspectRatio: 1.0,
       };
 
-      await html5QrCode.start(
-        { facingMode: 'environment' },
-        config,
-        (decodedText) => {
-          handleDecodedCode(decodedText);
-        },
-        () => {
-          // Frame without code — ignore
+      console.info('[SOOCHI Scanner] Requesting camera stream...');
+
+      let started = false;
+
+      // 1. Try environment / rear camera first (ideal for Android/iOS)
+      try {
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          config,
+          (decodedText) => {
+            handleDecodedCode(decodedText);
+          },
+          () => {
+            // Frame scanned without code — normal
+          }
+        );
+        started = true;
+        console.info('[SOOCHI Scanner] Camera started successfully with facingMode: environment');
+      } catch (envErr) {
+        console.info('[SOOCHI Scanner] facingMode: environment failed, checking available cameras:', envErr);
+      }
+
+      // 2. Fallback to available camera device ID or user camera (macOS Chrome/Safari, laptops without rear cameras)
+      if (!started) {
+        try {
+          const cameras = await Html5Qrcode.getCameras();
+          console.info(`[SOOCHI Scanner] Found ${cameras.length} available camera device(s):`, cameras.map((c) => c.label || c.id));
+
+          if (cameras.length > 0) {
+            // Prefer rear camera if present in label, otherwise use primary camera
+            const backCamera = cameras.find((c) => /back|rear|environment/i.test(c.label));
+            const selectedCameraId = backCamera ? backCamera.id : cameras[0].id;
+
+            await html5QrCode.start(
+              selectedCameraId,
+              config,
+              (decodedText) => {
+                handleDecodedCode(decodedText);
+              },
+              () => {
+                // Frame scanned without code
+              }
+            );
+            started = true;
+            console.info('[SOOCHI Scanner] Camera started with device ID fallback:', selectedCameraId);
+          } else {
+            // Try user facing mode as final fallback
+            await html5QrCode.start(
+              { facingMode: 'user' },
+              config,
+              (decodedText) => {
+                handleDecodedCode(decodedText);
+              },
+              () => {}
+            );
+            started = true;
+            console.info('[SOOCHI Scanner] Camera started with facingMode: user');
+          }
+        } catch (fallbackErr) {
+          console.error('[SOOCHI Scanner] Camera fallback acquisition failed:', fallbackErr);
+          throw fallbackErr;
         }
-      );
+      }
 
       setStatus('scanning');
 
@@ -234,15 +334,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         setHasTorchSupport(false);
       }
     } catch (err: unknown) {
-      console.error('Failed to start camera:', err);
+      console.error('[SOOCHI Scanner] Camera startup error:', err);
       const errMsg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
 
       if (errMsg.includes('notallowed') || errMsg.includes('permission') || errMsg.includes('denied')) {
         setStatus('permission_denied');
         setErrorMessage('Camera permission was denied. You can allow camera access in browser settings or enter the barcode manually.');
-      } else if (errMsg.includes('notfound') || errMsg.includes('devices') || errMsg.includes('no camera')) {
+      } else if (errMsg.includes('notfound') || errMsg.includes('devices') || errMsg.includes('no camera') || errMsg.includes('overconstrained')) {
         setStatus('camera_unavailable');
-        setErrorMessage('No camera was detected on this device. You can enter the barcode manually.');
+        setErrorMessage('No compatible camera was detected on this device. You can enter the barcode manually.');
       } else {
         setStatus('error');
         setErrorMessage('Camera initialization failed. You can enter the barcode manually.');
@@ -250,13 +350,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }, [handleDecodedCode, stopScanner]);
 
-  // Start scanner when modal opens, stop when modal closes
+  // Start scanner only on modal open, and stop on close/unmount
   useEffect(() => {
     if (isOpen) {
-      // Small timeout to ensure DOM element is mounted
       const timer = setTimeout(() => {
         startScanner();
-      }, 100);
+      }, 150);
       return () => {
         clearTimeout(timer);
         stopScanner();
@@ -285,7 +384,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       });
       setIsTorchOn(nextTorch);
     } catch (err) {
-      console.warn('Torch toggle failed:', err);
+      console.warn('[SOOCHI Scanner] Torch toggle failed:', err);
     }
   };
 
@@ -300,7 +399,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // Add locally matched item through existing pipeline
   const handleConfirmAddMatched = () => {
     if (matchedItem) {
-      onItemResolved(matchedItem);
+      callbacksRef.current.onItemResolved(matchedItem);
       onClose();
     }
   };
@@ -309,8 +408,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const handleOnlineAddToList = () => {
     if (!onlineProduct || isActionInProgress) return;
     setIsActionInProgress(true);
-    if (onOnlineProductAddToList) {
-      onOnlineProductAddToList(onlineProduct);
+    if (callbacksRef.current.onOnlineProductAddToList) {
+      callbacksRef.current.onOnlineProductAddToList(onlineProduct);
     }
     onClose();
   };
@@ -318,8 +417,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const handleOnlineAddToCatalog = async () => {
     if (!onlineProduct || isActionInProgress) return;
     setIsActionInProgress(true);
-    if (onOnlineProductAddToCatalog) {
-      await onOnlineProductAddToCatalog(onlineProduct);
+    if (callbacksRef.current.onOnlineProductAddToCatalog) {
+      await callbacksRef.current.onOnlineProductAddToCatalog(onlineProduct);
     }
     onClose();
   };
@@ -327,23 +426,23 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const handleOnlineAddToListAndCatalog = async () => {
     if (!onlineProduct || isActionInProgress) return;
     setIsActionInProgress(true);
-    if (onOnlineProductAddToListAndCatalog) {
-      await onOnlineProductAddToListAndCatalog(onlineProduct);
+    if (callbacksRef.current.onOnlineProductAddToListAndCatalog) {
+      await callbacksRef.current.onOnlineProductAddToListAndCatalog(onlineProduct);
     }
     onClose();
   };
 
   // Actions for unknown barcode
   const handleAddAsCustom = () => {
-    if (onCustomItemRequested) {
-      onCustomItemRequested(scannedCode);
+    if (callbacksRef.current.onCustomItemRequested) {
+      callbacksRef.current.onCustomItemRequested(scannedCode);
     }
     onClose();
   };
 
   const handleSearchCatalog = () => {
-    if (onSearchRequested) {
-      onSearchRequested(scannedCode);
+    if (callbacksRef.current.onSearchRequested) {
+      callbacksRef.current.onSearchRequested(scannedCode);
     }
     onClose();
   };
@@ -421,7 +520,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           {/* Live Camera Viewfinder (Scanning or Starting) */}
           {(status === 'scanning' || status === 'starting') && (
             <div className="relative rounded-2xl overflow-hidden bg-black aspect-square flex items-center justify-center border border-gray-800 shadow-inner">
-              <div id={SCAN_ELEMENT_ID} className="w-full h-full" />
+              <div id={SCAN_ELEMENT_ID} className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" />
 
               {/* Scanning Target Frame Overlay */}
               {status === 'scanning' && (
