@@ -373,6 +373,43 @@ export const CatalogPickerModal: React.FC<CatalogPickerModalProps> = ({
     }
   };
 
+  const handleManualCustomProductSave = async (input: import('./BarcodeScannerModal').ManualCustomProductInput) => {
+    try {
+      if (input.action === 'catalog' || input.action === 'both') {
+        const savedItem = await catalogRepository.addOnlineCatalogItem({
+          barcode: input.barcode,
+          productName: input.name,
+          brand: input.brand,
+          categoryId: input.categoryId,
+          unit: input.unit,
+        });
+        setAllItems((prev) => {
+          if (prev.some((p) => p.id === savedItem.id || (p.barcode && p.barcode === savedItem.barcode))) {
+            return prev;
+          }
+          return [...prev, savedItem];
+        });
+        if (input.action === 'both') {
+          await handleAddCatalogItem(savedItem);
+        }
+      } else if (input.action === 'list') {
+        const tempItem: CatalogItem = {
+          id: `custom-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          categoryId: input.categoryId,
+          name: input.name,
+          defaultUnit: input.unit || 'pack',
+          isCustom: true,
+          barcode: input.barcode,
+          brand: input.brand,
+          createdAt: new Date().toISOString(),
+        };
+        await handleAddCatalogItem(tempItem);
+      }
+    } catch (err) {
+      console.error('Failed to handle manual product save:', err);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -896,6 +933,7 @@ export const CatalogPickerModal: React.FC<CatalogPickerModalProps> = ({
         onOnlineProductAddToList={handleOnlineProductAddToList}
         onOnlineProductAddToCatalog={handleOnlineProductAddToCatalog}
         onOnlineProductAddToListAndCatalog={handleOnlineProductAddToListAndCatalog}
+        onManualCustomProductSave={handleManualCustomProductSave}
       />
     </div>
   );

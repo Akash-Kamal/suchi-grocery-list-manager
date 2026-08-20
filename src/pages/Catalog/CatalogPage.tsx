@@ -1,11 +1,28 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Search, Heart, Plus, Minus, X, Edit2, Trash2, Check, Scale, TrendingUp } from 'lucide-react';
+import {
+  Search,
+  Heart,
+  Plus,
+  Minus,
+  X,
+  Edit2,
+  Trash2,
+  Check,
+  Scale,
+  TrendingUp,
+  Camera,
+  Package,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { catalogRepository } from '../../repositories/catalogRepository';
 import { useDraftListStore } from '../../stores/useDraftListStore';
 import type { CatalogItem, Category } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
+import { BarcodeScannerModal, type ManualCustomProductInput } from '../../components/catalog/BarcodeScannerModal';
+import type { OnlineBarcodeProduct } from '../../services/barcodeProductLookup';
 
 const ALL_UNITS = ['kg', 'g', 'L', 'ml', 'pack', 'bottle', 'box', 'piece', 'dozen', 'lb', 'oz'];
 
@@ -25,9 +42,20 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
 
   // Custom Item Modal State
   const [showCustomModal, setShowCustomModal] = useState<boolean>(false);
+  const [showScanner, setShowScanner] = useState<boolean>(false);
   const [customName, setCustomName] = useState<string>('');
   const [customCategory, setCustomCategory] = useState<string>('cat-kitchen');
   const [customUnit, setCustomUnit] = useState<string>('pack');
+
+  // Metadata tab state per item
+  const [expandedMetaTab, setExpandedMetaTab] = useState<Record<string, 'ingredients' | 'allergens' | 'nutrition' | null>>({});
+
+  const toggleMetaTab = (itemId: string, tab: 'ingredients' | 'allergens' | 'nutrition') => {
+    setExpandedMetaTab((prev) => ({
+      ...prev,
+      [itemId]: prev[itemId] === tab ? null : tab,
+    }));
+  };
 
   // Edit Catalog Item Modal State
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
@@ -168,6 +196,57 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
     }
   };
 
+  // Barcode Scanner Handlers for Main Catalog
+  const handleItemResolved = async (item: CatalogItem) => {
+    await addItem(item);
+    await loadData();
+  };
+
+  const handleOnlineProductAddToList = async (product: OnlineBarcodeProduct) => {
+    const tempItem: CatalogItem = {
+      id: `online-item-${product.barcode}-${Date.now()}`,
+      categoryId: product.categoryId,
+      name: product.productName,
+      defaultUnit: product.unit || 'pack',
+      isCustom: true,
+      barcode: product.barcode,
+      brand: product.brand,
+      imageUrl: product.imageUrl,
+      createdAt: new Date().toISOString(),
+    };
+    await addItem(tempItem, product.quantity, product.unit);
+    await loadData();
+  };
+
+  const handleOnlineProductAddToCatalog = async (product: OnlineBarcodeProduct) => {
+    await catalogRepository.addOnlineCatalogItem(product);
+    await loadData();
+  };
+
+  const handleOnlineProductAddToListAndCatalog = async (product: OnlineBarcodeProduct) => {
+    const saved = await catalogRepository.addOnlineCatalogItem(product);
+    await addItem(saved, product.quantity, product.unit);
+    await loadData();
+  };
+
+  const handleManualCustomProductSave = async (input: ManualCustomProductInput) => {
+    if (input.action === 'catalog' || input.action === 'both') {
+      const saved = await catalogRepository.addOnlineCatalogItem({
+        barcode: input.barcode,
+        productName: input.name,
+        brand: input.brand,
+        categoryId: input.categoryId,
+        unit: input.unit,
+      });
+      if (input.action === 'both') {
+        await addItem(saved, input.quantity, input.unit);
+      }
+    } else if (input.action === 'list') {
+      await useDraftListStore.getState().addCustomItem(input.name, input.categoryId, input.quantity, input.unit);
+    }
+    await loadData();
+  };
+
   if (error) {
     return <ErrorState message={error} onRetry={loadData} />;
   }
@@ -176,18 +255,28 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
     <div className="space-y-6 pb-20 animate-fade-in">
       {/* Header & Search Bar */}
       <div className="bg-white dark:bg-slate-900/90 rounded-2xl p-5 border border-emerald-100 dark:border-slate-800 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">Grocery Catalog</h1>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Select, edit, or delete catalog items and change measurement units</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Select, edit, or scan items and change measurement units</p>
           </div>
-          <button
-            onClick={() => setShowCustomModal(true)}
-            className="inline-flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold text-xs rounded-xl shadow-md shadow-emerald-950/20 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Custom Item</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowScanner(true)}
+              className="inline-flex items-center space-x-1.5 px-3.5 sm:px-4 py-2 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900 active:scale-95 font-semibold text-xs rounded-xl shadow-xs transition-all cursor-pointer min-h-[44px]"
+              aria-label="Scan Barcode"
+            >
+              <Camera className="w-4 h-4" />
+              <span>Scan Barcode</span>
+            </button>
+            <button
+              onClick={() => setShowCustomModal(true)}
+              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold text-xs rounded-xl shadow-md shadow-emerald-950/20 transition-all cursor-pointer min-h-[44px]"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Custom Item</span>
+            </button>
+          </div>
         </div>
 
         {/* Search Input */}
@@ -288,6 +377,7 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
             const currentQty = draftEntry?.quantity || 0;
             const itemFreqScore = frequencyScoreMap.get(item.id) ?? 0;
             const isUsuallyBought = itemFreqScore >= 0.5;
+            const activeTab = expandedMetaTab[item.id];
 
             const isAtta = item.id === 'item-atta' || item.name.toLowerCase().includes('atta');
             const stepQty = isAtta ? 10 : 1;
@@ -302,38 +392,68 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
                 }`}
               >
                 <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-snug">{item.name}</h3>
-                    <div className="flex items-center space-x-1">
-                      <button
-                        onClick={() => handleStartEditItem(item)}
-                        title="Edit Item"
-                        aria-label={`Edit ${item.name}`}
-                        className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-full transition-colors cursor-pointer hover:bg-emerald-50 dark:hover:bg-slate-800"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeletingItem(item)}
-                        title="Delete Item"
-                        aria-label={`Delete ${item.name}`}
-                        className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 rounded-full transition-colors cursor-pointer hover:bg-red-50 dark:hover:bg-slate-800"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleToggleFavorite(item.id)}
-                        aria-label={isFav ? `Unfavorite ${item.name}` : `Favorite ${item.name}`}
-                        className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                          isFav ? 'text-rose-500 bg-rose-50 dark:bg-rose-950/60' : 'text-gray-300 dark:text-slate-600 hover:text-rose-400 hover:bg-gray-50 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
-                      </button>
+                  <div className="flex items-start gap-3">
+                    {/* Product Image / Icon */}
+                    {item.imageUrl ? (
+                      <div className="w-14 h-14 shrink-0 rounded-xl bg-gray-50 dark:bg-slate-800 p-1 border border-gray-100 dark:border-slate-800 overflow-hidden flex items-center justify-center">
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
+                          loading="lazy"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                          className="max-h-full max-w-full object-contain rounded-lg"
+                        />
+                      </div>
+                    ) : item.barcode ? (
+                      <div className="w-12 h-12 shrink-0 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40">
+                        <Package className="w-6 h-6" />
+                      </div>
+                    ) : null}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-snug break-words">{item.name}</h3>
+                        <div className="flex items-center space-x-0.5 shrink-0">
+                          <button
+                            onClick={() => handleStartEditItem(item)}
+                            title="Edit Item"
+                            aria-label={`Edit ${item.name}`}
+                            className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-full transition-colors cursor-pointer hover:bg-emerald-50 dark:hover:bg-slate-800"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingItem(item)}
+                            title="Delete Item"
+                            aria-label={`Delete ${item.name}`}
+                            className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 rounded-full transition-colors cursor-pointer hover:bg-red-50 dark:hover:bg-slate-800"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleFavorite(item.id)}
+                            aria-label={isFav ? `Unfavorite ${item.name}` : `Favorite ${item.name}`}
+                            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                              isFav ? 'text-rose-500 bg-rose-50 dark:bg-rose-950/60' : 'text-gray-300 dark:text-slate-600 hover:text-rose-400 hover:bg-gray-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {(item.brand || item.metadata?.brand || item.metadata?.manufacturer) && (
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 truncate mt-0.5">
+                          {item.brand || item.metadata?.brand || item.metadata?.manufacturer}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2 mt-1 flex-wrap gap-y-1">
+                  {/* Metadata Chips & Badges */}
+                  <div className="flex items-center space-x-1.5 mt-2.5 flex-wrap gap-y-1">
                     <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded-md flex items-center space-x-1">
                       <Scale className="w-2.5 h-2.5 text-gray-400 dark:text-slate-500" />
                       <span>Unit: {isAtta ? '10 kg' : item.defaultUnit}</span>
@@ -349,7 +469,124 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
                         Custom
                       </span>
                     )}
+                    {item.barcode && (
+                      <span className="text-[10px] font-mono text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md">
+                        {item.barcode}
+                      </span>
+                    )}
                   </div>
+
+                  {/* Optional Origin / Generic Name */}
+                  {(item.metadata?.countries || item.metadata?.genericName) && (
+                    <div className="mt-2 text-[11px] text-gray-500 dark:text-slate-400 flex items-center space-x-2 flex-wrap">
+                      {item.metadata.countries && <span>Origin: {item.metadata.countries}</span>}
+                      {item.metadata.countries && item.metadata.genericName && <span>·</span>}
+                      {item.metadata.genericName && <span>{item.metadata.genericName}</span>}
+                    </div>
+                  )}
+
+                  {/* Expandable Tabs for Ingredients / Allergens / Nutrition */}
+                  {(item.metadata?.ingredients || item.metadata?.allergens || item.metadata?.nutrition) && (
+                    <div className="mt-3 pt-2.5 border-t border-gray-100 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                        {item.metadata.ingredients && (
+                          <button
+                            type="button"
+                            onClick={() => toggleMetaTab(item.id, 'ingredients')}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1 ${
+                              activeTab === 'ingredients'
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 hover:bg-gray-200'
+                            }`}
+                          >
+                            <span>Ingredients</span>
+                            {activeTab === 'ingredients' ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                          </button>
+                        )}
+                        {item.metadata.allergens && (
+                          <button
+                            type="button"
+                            onClick={() => toggleMetaTab(item.id, 'allergens')}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1 ${
+                              activeTab === 'allergens'
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
+                            }`}
+                          >
+                            <span>Allergens</span>
+                            {activeTab === 'allergens' ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                          </button>
+                        )}
+                        {item.metadata.nutrition && (
+                          <button
+                            type="button"
+                            onClick={() => toggleMetaTab(item.id, 'nutrition')}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1 ${
+                              activeTab === 'nutrition'
+                                ? 'bg-teal-600 text-white'
+                                : 'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 hover:bg-teal-100'
+                            }`}
+                          >
+                            <span>Nutrition</span>
+                            {activeTab === 'nutrition' ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                          </button>
+                        )}
+                      </div>
+
+                      {activeTab === 'ingredients' && item.metadata.ingredients && (
+                        <div className="p-2.5 bg-gray-50 dark:bg-slate-800/80 rounded-xl text-[11px] text-gray-600 dark:text-slate-300 leading-relaxed max-h-28 overflow-y-auto animate-fade-in">
+                          {item.metadata.ingredients}
+                        </div>
+                      )}
+
+                      {activeTab === 'allergens' && item.metadata.allergens && (
+                        <div className="p-2.5 bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900/50 rounded-xl text-[11px] text-amber-900 dark:text-amber-200 animate-fade-in">
+                          <strong>Contains: </strong>{item.metadata.allergens}
+                        </div>
+                      )}
+
+                      {activeTab === 'nutrition' && item.metadata.nutrition && (
+                        <div className="p-2 bg-emerald-50/50 dark:bg-slate-800/50 rounded-xl grid grid-cols-3 gap-1.5 text-center text-[10px] animate-fade-in">
+                          {item.metadata.nutrition.energyKcal !== undefined && (
+                            <div className="bg-white dark:bg-slate-900 p-1 rounded">
+                              <span className="text-gray-400 block">Energy</span>
+                              <span className="font-bold text-gray-900 dark:text-white">{item.metadata.nutrition.energyKcal} kcal</span>
+                            </div>
+                          )}
+                          {item.metadata.nutrition.proteins !== undefined && (
+                            <div className="bg-white dark:bg-slate-900 p-1 rounded">
+                              <span className="text-gray-400 block">Protein</span>
+                              <span className="font-bold text-gray-900 dark:text-white">{item.metadata.nutrition.proteins}g</span>
+                            </div>
+                          )}
+                          {item.metadata.nutrition.carbs !== undefined && (
+                            <div className="bg-white dark:bg-slate-900 p-1 rounded">
+                              <span className="text-gray-400 block">Carbs</span>
+                              <span className="font-bold text-gray-900 dark:text-white">{item.metadata.nutrition.carbs}g</span>
+                            </div>
+                          )}
+                          {item.metadata.nutrition.fat !== undefined && (
+                            <div className="bg-white dark:bg-slate-900 p-1 rounded">
+                              <span className="text-gray-400 block">Fat</span>
+                              <span className="font-bold text-gray-900 dark:text-white">{item.metadata.nutrition.fat}g</span>
+                            </div>
+                          )}
+                          {item.metadata.nutrition.sugar !== undefined && (
+                            <div className="bg-white dark:bg-slate-900 p-1 rounded">
+                              <span className="text-gray-400 block">Sugar</span>
+                              <span className="font-bold text-gray-900 dark:text-white">{item.metadata.nutrition.sugar}g</span>
+                            </div>
+                          )}
+                          {item.metadata.nutrition.salt !== undefined && (
+                            <div className="bg-white dark:bg-slate-900 p-1 rounded">
+                              <span className="text-gray-400 block">Salt</span>
+                              <span className="font-bold text-gray-900 dark:text-white">{item.metadata.nutrition.salt}g</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Inline Stepper Controls with Direct Editable Quantity Input */}
@@ -617,6 +854,27 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={showScanner}
+        onClose={() => setShowScanner(false)}
+        catalogItems={catalogItems}
+        categories={categories}
+        currentItems={draftItems}
+        onItemResolved={handleItemResolved}
+        onOnlineProductAddToList={handleOnlineProductAddToList}
+        onOnlineProductAddToCatalog={handleOnlineProductAddToCatalog}
+        onOnlineProductAddToListAndCatalog={handleOnlineProductAddToListAndCatalog}
+        onManualCustomProductSave={handleManualCustomProductSave}
+        onSearchRequested={(query) => {
+          setSearchQuery(query);
+        }}
+        onCustomItemRequested={(name) => {
+          setCustomName(name);
+          setShowCustomModal(true);
+        }}
+      />
     </div>
   );
 };

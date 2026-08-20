@@ -14,6 +14,13 @@ import {
   Globe,
   WifiOff,
   Package,
+  Building,
+  MapPin,
+  FileText,
+  AlertTriangle,
+  Activity,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { lookupCatalogItemByBarcode, normalizeBarcode, buildBarcodeLookupMap } from '../../utils/barcodeLookup';
@@ -22,6 +29,16 @@ import { getDefaultQuantity } from '../../utils/catalogQuantity';
 import { normalizeItemName } from '../../utils/catalogItemIdentity';
 import { runCameraDiagnostics } from '../../utils/cameraDiagnostics';
 import type { CatalogItem, Category, ListItem } from '../../types/database';
+
+export interface ManualCustomProductInput {
+  barcode: string;
+  name: string;
+  brand?: string;
+  quantity: number;
+  unit: string;
+  categoryId: string;
+  action: 'list' | 'catalog' | 'both';
+}
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -35,6 +52,7 @@ interface BarcodeScannerModalProps {
   onOnlineProductAddToList?: (product: OnlineBarcodeProduct) => void;
   onOnlineProductAddToCatalog?: (product: OnlineBarcodeProduct) => Promise<void> | void;
   onOnlineProductAddToListAndCatalog?: (product: OnlineBarcodeProduct) => Promise<void> | void;
+  onManualCustomProductSave?: (input: ManualCustomProductInput) => Promise<void> | void;
 }
 
 type ScannerStatus =
@@ -46,12 +64,14 @@ type ScannerStatus =
   | 'found'
   | 'online_product_found'
   | 'not_found'
+  | 'manual_create'
   | 'qr_detected'
   | 'manual_entry'
   | 'permission_denied'
   | 'camera_unavailable'
   | 'offline'
   | 'network_error'
+  | 'action_success'
   | 'error';
 
 const SCAN_ELEMENT_ID = 'soochi-barcode-scanner-reader';
@@ -66,6 +86,8 @@ const SUPPORTED_FORMATS: Html5QrcodeSupportedFormats[] = [
   Html5QrcodeSupportedFormats.CODE_128,
 ];
 
+const STANDARD_UNITS = ['pack', 'kg', 'g', 'L', 'ml', 'pcs', 'bottle', 'dozen', 'box'];
+
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   isOpen,
   onClose,
@@ -78,6 +100,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onOnlineProductAddToList,
   onOnlineProductAddToCatalog,
   onOnlineProductAddToListAndCatalog,
+  onManualCustomProductSave,
 }) => {
   const [status, setStatus] = useState<ScannerStatus>(isOpen ? 'starting' : 'idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -88,6 +111,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [isTorchOn, setIsTorchOn] = useState<boolean>(false);
   const [hasTorchSupport, setHasTorchSupport] = useState<boolean>(false);
   const [isActionInProgress, setIsActionInProgress] = useState<boolean>(false);
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [showFullIngredients, setShowFullIngredients] = useState<boolean>(false);
+
+  // Manual Unknown Product Creation Form State
+  const [manualFormName, setManualFormName] = useState<string>('');
+  const [manualFormBrand, setManualFormBrand] = useState<string>('');
+  const [manualFormCategory, setManualFormCategory] = useState<string>('cat-kitchen');
+  const [manualFormUnit, setManualFormUnit] = useState<string>('pack');
+  const [manualFormQuantity, setManualFormQuantity] = useState<number>(1);
 
   const scannerContainerRef = useRef<HTMLDivElement | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -104,6 +136,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     onOnlineProductAddToList,
     onOnlineProductAddToCatalog,
     onOnlineProductAddToListAndCatalog,
+    onManualCustomProductSave,
   });
 
   useEffect(() => {
@@ -115,6 +148,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       onOnlineProductAddToList,
       onOnlineProductAddToCatalog,
       onOnlineProductAddToListAndCatalog,
+      onManualCustomProductSave,
     };
     barcodeMapRef.current = buildBarcodeLookupMap(catalogItems);
   }, [
@@ -125,6 +159,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     onOnlineProductAddToList,
     onOnlineProductAddToCatalog,
     onOnlineProductAddToListAndCatalog,
+    onManualCustomProductSave,
   ]);
 
   // Stop camera tracks cleanly
@@ -243,6 +278,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setIsActionInProgress(false);
     isProcessingScanRef.current = false;
     setIsTorchOn(false);
+    setSuccessMessage('');
+    setShowFullIngredients(false);
 
     try {
       runCameraDiagnostics().catch(console.warn);
@@ -427,7 +464,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const handleConfirmAddMatched = () => {
     if (matchedItem) {
       callbacksRef.current.onItemResolved(matchedItem);
-      onClose();
+      setSuccessMessage(`"${matchedItem.name}" added to your grocery list!`);
+      setStatus('action_success');
     }
   };
 
@@ -438,7 +476,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     if (callbacksRef.current.onOnlineProductAddToList) {
       callbacksRef.current.onOnlineProductAddToList(onlineProduct);
     }
-    onClose();
+    setSuccessMessage(`"${onlineProduct.productName}" added to your grocery list!`);
+    setStatus('action_success');
+    setIsActionInProgress(false);
   };
 
   const handleOnlineAddToCatalog = async () => {
@@ -447,7 +487,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     if (callbacksRef.current.onOnlineProductAddToCatalog) {
       await callbacksRef.current.onOnlineProductAddToCatalog(onlineProduct);
     }
-    onClose();
+    setSuccessMessage(`"${onlineProduct.productName}" saved to your catalog!`);
+    setStatus('action_success');
+    setIsActionInProgress(false);
   };
 
   const handleOnlineAddToListAndCatalog = async () => {
@@ -456,10 +498,47 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     if (callbacksRef.current.onOnlineProductAddToListAndCatalog) {
       await callbacksRef.current.onOnlineProductAddToListAndCatalog(onlineProduct);
     }
-    onClose();
+    setSuccessMessage(`"${onlineProduct.productName}" saved to catalog & added to your list!`);
+    setStatus('action_success');
+    setIsActionInProgress(false);
   };
 
-  // Actions for unknown barcode
+  // Manual unknown product creation actions
+  const handleStartManualCreate = () => {
+    setManualFormName('');
+    setManualFormBrand('');
+    setManualFormCategory('cat-kitchen');
+    setManualFormUnit('pack');
+    setManualFormQuantity(1);
+    setStatus('manual_create');
+  };
+
+  const handleSaveManualProduct = async (action: 'list' | 'catalog' | 'both') => {
+    if (!manualFormName.trim() || isActionInProgress) return;
+    setIsActionInProgress(true);
+    try {
+      if (callbacksRef.current.onManualCustomProductSave) {
+        await callbacksRef.current.onManualCustomProductSave({
+          barcode: scannedCode,
+          name: manualFormName.trim(),
+          brand: manualFormBrand.trim() || undefined,
+          quantity: manualFormQuantity > 0 ? manualFormQuantity : 1,
+          unit: manualFormUnit,
+          categoryId: manualFormCategory,
+          action,
+        });
+      }
+      const label = action === 'list' ? 'added to your list' : action === 'catalog' ? 'saved to catalog' : 'saved to catalog & added to list';
+      setSuccessMessage(`"${manualFormName.trim()}" ${label}!`);
+      setStatus('action_success');
+    } catch (err) {
+      console.error('Failed to save custom product:', err);
+    } finally {
+      setIsActionInProgress(false);
+    }
+  };
+
+  // Actions for QR / Custom fallback
   const handleAddAsCustom = () => {
     if (callbacksRef.current.onCustomItemRequested) {
       callbacksRef.current.onCustomItemRequested(scannedCode);
@@ -590,42 +669,206 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           )}
 
+          {/* Action Success State (STEP 15) */}
+          {status === 'action_success' && (
+            <div
+              className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-6 text-center space-y-4 animate-fade-in"
+              aria-live="polite"
+            >
+              <div className="w-14 h-14 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-md">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900 dark:text-white">
+                  Success!
+                </h3>
+                <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 mt-1">
+                  {successMessage}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={startScanner}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer min-h-[44px]"
+                >
+                  Scan Another
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 font-bold text-xs rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer min-h-[44px]"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Local Product Found State */}
           {status === 'found' && matchedItem && (
             <div
-              className="bg-emerald-50/80 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-5 text-center space-y-3.5 animate-fade-in"
+              className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm animate-fade-in"
               aria-live="polite"
             >
-              <div className="w-12 h-12 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-md">
-                <CheckCircle2 className="w-7 h-7" />
-              </div>
-
-              <div>
-                <div className="inline-flex items-center space-x-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/70 px-2.5 py-0.5 rounded-full mb-1">
-                  <Layers className="w-3 h-3" />
-                  <span>{categoryName}</span>
-                </div>
-
-                <h3 className="text-lg font-black text-gray-900 dark:text-white mt-1 leading-snug">
-                  {matchedItem.name}
-                </h3>
-
-                <div className="flex items-center justify-center space-x-2 text-xs text-gray-600 dark:text-slate-300 mt-1 font-medium">
-                  <span>Unit: <strong className="text-gray-900 dark:text-white">{matchedItem.defaultUnit}</strong></span>
-                  <span>·</span>
-                  <span>Qty: <strong className="text-gray-900 dark:text-white">{defaultQty} {matchedItem.defaultUnit}</strong></span>
-                </div>
-
-                <p className="text-[11px] text-gray-400 dark:text-slate-500 font-mono mt-1">
-                  Code: {scannedCode}
-                </p>
-
-                {existingItemInList && (
-                  <div className="mt-2.5 inline-block bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 text-[11px] font-bold px-2.5 py-1 rounded-xl">
-                    Already in your list ({existingItemInList.quantity} {existingItemInList.unit})
+              {/* Product Header & Image */}
+              <div className="flex items-start space-x-3.5">
+                {matchedItem.imageUrl ? (
+                  <div className="w-20 h-20 shrink-0 rounded-2xl bg-white dark:bg-slate-800 p-1 border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden flex items-center justify-center">
+                    <img
+                      src={matchedItem.imageUrl}
+                      alt={matchedItem.name}
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                      className="max-h-full max-w-full object-contain rounded-xl"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 shrink-0 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center shadow-xs">
+                    <Package className="w-8 h-8" />
                   </div>
                 )}
+
+                <div className="flex-1 min-w-0">
+                  <div className="inline-flex items-center space-x-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md mb-1 border border-emerald-200 dark:border-emerald-800">
+                    <Layers className="w-3 h-3" />
+                    <span className="truncate">{categoryName} · Local Catalog</span>
+                  </div>
+
+                  <h3 className="text-base font-black text-gray-900 dark:text-white leading-snug break-words">
+                    {matchedItem.name}
+                  </h3>
+
+                  {(matchedItem.brand || matchedItem.metadata?.brand) && (
+                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
+                      {matchedItem.brand || matchedItem.metadata?.brand}
+                    </p>
+                  )}
+
+                  <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-slate-300 mt-1 font-medium">
+                    <span>Unit: <strong className="text-gray-900 dark:text-white">{matchedItem.defaultUnit}</strong></span>
+                    <span>·</span>
+                    <span>Qty: <strong className="text-gray-900 dark:text-white">{defaultQty} {matchedItem.defaultUnit}</strong></span>
+                  </div>
+                </div>
               </div>
+
+              {/* Rich Attributes List if Present in Metadata */}
+              {(matchedItem.metadata?.manufacturer || matchedItem.metadata?.countries || matchedItem.metadata?.genericName) && (
+                <div className="bg-gray-50 dark:bg-slate-800/60 rounded-xl p-3 space-y-2 border border-gray-100 dark:border-slate-800 text-xs">
+                  {matchedItem.metadata.manufacturer && (
+                    <div className="flex items-start space-x-2 text-gray-700 dark:text-slate-300">
+                      <Building className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                      <span>Manufacturer: <strong className="font-semibold text-gray-900 dark:text-white">{matchedItem.metadata.manufacturer}</strong></span>
+                    </div>
+                  )}
+
+                  {matchedItem.metadata.countries && (
+                    <div className="flex items-start space-x-2 text-gray-700 dark:text-slate-300">
+                      <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                      <span>Origin: <strong className="font-semibold text-gray-900 dark:text-white">{matchedItem.metadata.countries}</strong></span>
+                    </div>
+                  )}
+
+                  {matchedItem.metadata.genericName && (
+                    <div className="flex items-start space-x-2 text-gray-700 dark:text-slate-300">
+                      <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                      <span>Generic: <span className="text-gray-900 dark:text-white">{matchedItem.metadata.genericName}</span></span>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400 font-mono">
+                    Barcode: {scannedCode} · Local Catalog
+                  </div>
+                </div>
+              )}
+
+              {/* Allergens Badge if Present */}
+              {matchedItem.metadata?.allergens && (
+                <div className="flex items-start space-x-2 p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-amber-900 dark:text-amber-200">Allergens: </span>
+                    <span className="text-amber-800 dark:text-amber-300">{matchedItem.metadata.allergens}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Ingredients Collapsible Section */}
+              {matchedItem.metadata?.ingredients && (
+                <div className="border border-gray-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowFullIngredients(!showFullIngredients)}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800/70 flex items-center justify-between text-xs font-bold text-gray-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    <span>Ingredients</span>
+                    {showFullIngredients ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                  {showFullIngredients && (
+                    <div className="p-3 text-xs text-gray-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 max-h-36 overflow-y-auto">
+                      {matchedItem.metadata.ingredients}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Nutrition Facts Highlights if Present */}
+              {matchedItem.metadata?.nutrition && (
+                <div className="bg-emerald-50/50 dark:bg-slate-800/40 border border-emerald-100 dark:border-slate-800 rounded-xl p-3">
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-900 dark:text-emerald-300 mb-2">
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>Nutrition Highlights</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    {matchedItem.metadata.nutrition.energyKcal !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Energy</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{matchedItem.metadata.nutrition.energyKcal} kcal</span>
+                      </div>
+                    )}
+                    {matchedItem.metadata.nutrition.proteins !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Protein</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{matchedItem.metadata.nutrition.proteins}g</span>
+                      </div>
+                    )}
+                    {matchedItem.metadata.nutrition.carbs !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Carbs</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{matchedItem.metadata.nutrition.carbs}g</span>
+                      </div>
+                    )}
+                    {matchedItem.metadata.nutrition.fat !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Fat</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{matchedItem.metadata.nutrition.fat}g</span>
+                      </div>
+                    )}
+                    {matchedItem.metadata.nutrition.sugar !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Sugar</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{matchedItem.metadata.nutrition.sugar}g</span>
+                      </div>
+                    )}
+                    {matchedItem.metadata.nutrition.salt !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Salt</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{matchedItem.metadata.nutrition.salt}g</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {existingItemInList && (
+                <div className="bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 text-xs font-bold p-2.5 rounded-xl text-center">
+                  Already in your list ({existingItemInList.quantity} {existingItemInList.unit})
+                </div>
+              )}
 
               <div className="flex items-center justify-center space-x-2.5 pt-2">
                 <button
@@ -646,54 +889,159 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           )}
 
-          {/* Online Product Found State (STEP 14) */}
+          {/* Online Product Found State — Rich Product Result Card (STEP 15) */}
           {status === 'online_product_found' && onlineProduct && (
             <div
-              className="bg-emerald-50/70 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 sm:p-5 text-center space-y-3.5 animate-fade-in"
+              className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm animate-fade-in"
               aria-live="polite"
             >
-              {/* Product Image or Icon */}
-              {onlineProduct.imageUrl ? (
-                <div className="w-20 h-20 mx-auto rounded-2xl bg-white dark:bg-slate-800 p-1 border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden flex items-center justify-center">
-                  <img
-                    src={onlineProduct.imageUrl}
-                    alt={onlineProduct.productName}
-                    loading="lazy"
-                    className="max-h-full max-w-full object-contain rounded-xl"
-                  />
+              {/* Product Header & Image */}
+              <div className="flex items-start space-x-3.5">
+                {onlineProduct.imageUrl ? (
+                  <div className="w-20 h-20 shrink-0 rounded-2xl bg-white dark:bg-slate-800 p-1 border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden flex items-center justify-center">
+                    <img
+                      src={onlineProduct.imageUrl}
+                      alt={onlineProduct.productName}
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                      className="max-h-full max-w-full object-contain rounded-xl"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 shrink-0 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center shadow-xs">
+                    <Package className="w-8 h-8" />
+                  </div>
+                )}
+
+                <div className="flex-1 min-w-0">
+                  <div className="inline-flex items-center space-x-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md mb-1 border border-emerald-200 dark:border-emerald-800">
+                    <Globe className="w-3 h-3" />
+                    <span className="truncate">{onlineProduct.categoryName}</span>
+                  </div>
+
+                  <h3 className="text-base font-black text-gray-900 dark:text-white leading-snug break-words">
+                    {onlineProduct.productName}
+                  </h3>
+
+                  {onlineProduct.brand && (
+                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
+                      {onlineProduct.brand}
+                    </p>
+                  )}
+
+                  <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-slate-300 mt-1 font-medium">
+                    <span>Qty: <strong className="text-gray-900 dark:text-white">{onlineProduct.quantity} {onlineProduct.unit}</strong></span>
+                  </div>
                 </div>
-              ) : (
-                <div className="w-12 h-12 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-md">
-                  <Package className="w-6 h-6" />
+              </div>
+
+              {/* Rich Attributes List */}
+              <div className="bg-gray-50 dark:bg-slate-800/60 rounded-xl p-3 space-y-2 border border-gray-100 dark:border-slate-800 text-xs">
+                {onlineProduct.manufacturer && (
+                  <div className="flex items-start space-x-2 text-gray-700 dark:text-slate-300">
+                    <Building className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                    <span>Manufacturer: <strong className="font-semibold text-gray-900 dark:text-white">{onlineProduct.manufacturer}</strong></span>
+                  </div>
+                )}
+
+                {onlineProduct.countries && (
+                  <div className="flex items-start space-x-2 text-gray-700 dark:text-slate-300">
+                    <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                    <span>Origin: <strong className="font-semibold text-gray-900 dark:text-white">{onlineProduct.countries}</strong></span>
+                  </div>
+                )}
+
+                {onlineProduct.genericName && (
+                  <div className="flex items-start space-x-2 text-gray-700 dark:text-slate-300">
+                    <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                    <span>Generic: <span className="text-gray-900 dark:text-white">{onlineProduct.genericName}</span></span>
+                  </div>
+                )}
+
+                <div className="text-[11px] text-gray-500 dark:text-slate-400 font-mono">
+                  Barcode: {onlineProduct.barcode} · Source: {onlineProduct.source}
+                </div>
+              </div>
+
+              {/* Allergens Badge if Present */}
+              {onlineProduct.allergens && (
+                <div className="flex items-start space-x-2 p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-amber-900 dark:text-amber-200">Allergens: </span>
+                    <span className="text-amber-800 dark:text-amber-300">{onlineProduct.allergens}</span>
+                  </div>
                 </div>
               )}
 
-              <div>
-                <div className="inline-flex items-center space-x-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/70 px-2.5 py-0.5 rounded-full mb-1">
-                  <Globe className="w-3 h-3" />
-                  <span>{onlineProduct.categoryName}</span>
+              {/* Ingredients Collapsible Section */}
+              {onlineProduct.ingredients && (
+                <div className="border border-gray-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowFullIngredients(!showFullIngredients)}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800/70 flex items-center justify-between text-xs font-bold text-gray-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    <span>Ingredients</span>
+                    {showFullIngredients ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                  {showFullIngredients && (
+                    <div className="p-3 text-xs text-gray-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 max-h-36 overflow-y-auto">
+                      {onlineProduct.ingredients}
+                    </div>
+                  )}
                 </div>
+              )}
 
-                <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white mt-1 leading-snug">
-                  {onlineProduct.productName}
-                </h3>
-
-                {onlineProduct.brand && (
-                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                    {onlineProduct.brand}
-                  </p>
-                )}
-
-                <div className="flex items-center justify-center space-x-2 text-xs text-gray-600 dark:text-slate-300 mt-1 font-medium">
-                  <span>Unit: <strong className="text-gray-900 dark:text-white">{onlineProduct.unit}</strong></span>
-                  <span>·</span>
-                  <span>Qty: <strong className="text-gray-900 dark:text-white">{onlineProduct.quantity} {onlineProduct.unit}</strong></span>
+              {/* Nutrition Facts Highlights */}
+              {onlineProduct.nutrition && (
+                <div className="bg-emerald-50/50 dark:bg-slate-800/40 border border-emerald-100 dark:border-slate-800 rounded-xl p-3">
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-900 dark:text-emerald-300 mb-2">
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>Nutrition Highlights</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    {onlineProduct.nutrition.energyKcal !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Energy</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{onlineProduct.nutrition.energyKcal} kcal</span>
+                      </div>
+                    )}
+                    {onlineProduct.nutrition.proteins !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Protein</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{onlineProduct.nutrition.proteins}g</span>
+                      </div>
+                    )}
+                    {onlineProduct.nutrition.carbs !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Carbs</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{onlineProduct.nutrition.carbs}g</span>
+                      </div>
+                    )}
+                    {onlineProduct.nutrition.fat !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Fat</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{onlineProduct.nutrition.fat}g</span>
+                      </div>
+                    )}
+                    {onlineProduct.nutrition.sugar !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Sugar</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{onlineProduct.nutrition.sugar}g</span>
+                      </div>
+                    )}
+                    {onlineProduct.nutrition.salt !== undefined && (
+                      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-[10px] text-gray-500 dark:text-slate-400 block">Salt</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{onlineProduct.nutrition.salt}g</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-
-                <p className="text-[11px] text-gray-400 dark:text-slate-500 font-mono mt-1">
-                  Barcode: {onlineProduct.barcode} · Source: {onlineProduct.source}
-                </p>
-              </div>
+              )}
 
               {/* Action Buttons */}
               <div className="space-y-2 pt-1">
@@ -725,7 +1073,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   </button>
                 </div>
 
-                <div className="pt-1">
+                <div className="pt-1 text-center">
                   <button
                     type="button"
                     onClick={startScanner}
@@ -762,11 +1110,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={handleAddAsCustom}
+                  onClick={handleStartManualCreate}
                   className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer min-h-[44px]"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Custom Item</span>
+                  <span>Add Custom Product</span>
                 </button>
                 <button
                   type="button"
@@ -790,7 +1138,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           )}
 
-          {/* Product Not Found State (After Local + Online Lookup) */}
+          {/* Product Not Found State (STEP 10 & 15) */}
           {(status === 'not_found' || status === 'network_error') && (
             <div
               className="bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-2xl p-5 text-center space-y-3 animate-fade-in"
@@ -807,29 +1155,37 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   Barcode: {scannedCode}
                 </p>
                 <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-2">
-                  {status === 'network_error'
-                    ? 'Could not connect to the online product database right now. You can add it as a custom item:'
-                    : 'This barcode was not found locally or in the online open database. Choose how you would like to add it:'}
+                  This barcode is not in your local catalog or online database. You can add it now:
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+              <div className="space-y-2 pt-2">
                 <button
                   type="button"
-                  onClick={handleAddAsCustom}
-                  className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer min-h-[44px]"
+                  onClick={handleStartManualCreate}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center space-x-1.5 cursor-pointer min-h-[44px]"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Custom Item</span>
+                  <span>Add Product to Catalog</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSearchCatalog}
-                  className="px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center justify-center space-x-1.5 cursor-pointer min-h-[44px]"
-                >
-                  <Search className="w-4 h-4" />
-                  <span>Search Catalog</span>
-                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddAsCustom}
+                    className="py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center justify-center space-x-1 cursor-pointer min-h-[44px]"
+                  >
+                    <span>Add Quick Custom</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSearchCatalog}
+                    className="py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center justify-center space-x-1 cursor-pointer min-h-[44px]"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Search Catalog</span>
+                  </button>
+                </div>
               </div>
 
               <div className="pt-1">
@@ -840,6 +1196,135 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 >
                   Scan Again
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Manual Unknown Product Creation Form (PART 10) */}
+          {status === 'manual_create' && (
+            <div className="bg-gray-50 dark:bg-slate-800/60 p-4 sm:p-5 rounded-2xl border border-gray-200 dark:border-slate-700 space-y-3.5 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-xs font-bold text-gray-900 dark:text-white">
+                  <Package className="w-4 h-4 text-emerald-600" />
+                  <span>Add Product ({scannedCode})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStatus('not_found')}
+                  className="text-xs font-semibold text-gray-500 hover:text-gray-700 dark:hover:text-slate-300"
+                >
+                  Back
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 dark:text-slate-300 block mb-1">
+                    Product Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={manualFormName}
+                    onChange={(e) => setManualFormName(e.target.value)}
+                    placeholder="e.g. Britannia Bourbon Biscuit"
+                    autoFocus
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 dark:text-slate-300 block mb-1">
+                    Brand / Company (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={manualFormBrand}
+                    onChange={(e) => setManualFormBrand(e.target.value)}
+                    placeholder="e.g. Britannia"
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 dark:text-slate-300 block mb-1">
+                      Quantity
+                    </label>
+                    <input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={manualFormQuantity}
+                      onChange={(e) => setManualFormQuantity(parseFloat(e.target.value) || 1)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none min-h-[44px]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 dark:text-slate-300 block mb-1">
+                      Unit
+                    </label>
+                    <select
+                      value={manualFormUnit}
+                      onChange={(e) => setManualFormUnit(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none min-h-[44px]"
+                    >
+                      {STANDARD_UNITS.map((u) => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 dark:text-slate-300 block mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={manualFormCategory}
+                    onChange={(e) => setManualFormCategory(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none min-h-[44px]"
+                  >
+                    {categories.length > 0 ? (
+                      categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))
+                    ) : (
+                      <option value="cat-kitchen">Kitchen & Staples</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Action Buttons for Manual Form */}
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  disabled={!manualFormName.trim() || isActionInProgress}
+                  onClick={() => handleSaveManualProduct('both')}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition-all cursor-pointer min-h-[44px]"
+                >
+                  + Add to List & Catalog
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={!manualFormName.trim() || isActionInProgress}
+                    onClick={() => handleSaveManualProduct('list')}
+                    className="py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 font-bold text-xs rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] disabled:opacity-50"
+                  >
+                    + Add to List
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!manualFormName.trim() || isActionInProgress}
+                    onClick={() => handleSaveManualProduct('catalog')}
+                    className="py-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 font-bold text-xs rounded-xl hover:bg-emerald-50/50 dark:hover:bg-slate-700 transition-all cursor-pointer min-h-[44px] disabled:opacity-50"
+                  >
+                    Save to Catalog
+                  </button>
+                </div>
               </div>
             </div>
           )}

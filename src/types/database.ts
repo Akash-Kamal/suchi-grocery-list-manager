@@ -9,6 +9,33 @@ export interface Category {
   icon: string;
 }
 
+export interface ProductNutritionInfo {
+  energyKcal?: string | number | null;
+  fat?: string | number | null;
+  carbs?: string | number | null;
+  proteins?: string | number | null;
+  sugar?: string | number | null;
+  salt?: string | number | null;
+  fiber?: string | number | null;
+}
+
+export interface CatalogProductMetadata {
+  brand?: string | null;
+  manufacturer?: string | null;
+  imageUrl?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  rawQuantityText?: string | null;
+  categoryName?: string | null;
+  genericName?: string | null;
+  description?: string | null;
+  ingredients?: string | null;
+  allergens?: string | null;
+  countries?: string | null;
+  nutrition?: ProductNutritionInfo | null;
+  source?: string | null;
+}
+
 export interface CatalogItem {
   id: string;
   categoryId: string;
@@ -18,6 +45,7 @@ export interface CatalogItem {
   barcode?: string | null;
   brand?: string | null;
   imageUrl?: string | null;
+  metadata?: CatalogProductMetadata | null;
   createdAt: string;
 }
 

@@ -130,11 +130,61 @@ export class CatalogRepository {
     barcode: string;
     productName: string;
     brand?: string | null;
+    manufacturer?: string | null;
     categoryId?: string | null;
+    categoryName?: string | null;
+    quantity?: number | null;
     unit?: string | null;
+    rawQuantityText?: string | null;
     imageUrl?: string | null;
+    genericName?: string | null;
+    description?: string | null;
+    ingredients?: string | null;
+    allergens?: string | null;
+    countries?: string | null;
+    nutrition?: import('../types/database').ProductNutritionInfo | null;
+    source?: string | null;
+    metadata?: import('../types/database').CatalogProductMetadata | null;
   }): Promise<CatalogItem> {
     const normalizedBarcode = (product.barcode || '').trim();
+
+    const metadata: import('../types/database').CatalogProductMetadata = product.metadata || {
+      brand: product.brand || null,
+      manufacturer: product.manufacturer || null,
+      imageUrl: product.imageUrl || null,
+      quantity: product.quantity ?? null,
+      unit: product.unit || null,
+      rawQuantityText: product.rawQuantityText || null,
+      categoryName: product.categoryName || null,
+      genericName: product.genericName || null,
+      description: product.description || null,
+      ingredients: product.ingredients || null,
+      allergens: product.allergens || null,
+      countries: product.countries || null,
+      nutrition: product.nutrition || null,
+      source: product.source || 'Open Food Facts',
+    };
+
+    const mergeMetadata = (
+      existingMeta?: import('../types/database').CatalogProductMetadata | null,
+      newMeta?: import('../types/database').CatalogProductMetadata | null
+    ): import('../types/database').CatalogProductMetadata | null => {
+      if (!existingMeta && !newMeta) return null;
+      if (!existingMeta) return newMeta || null;
+      if (!newMeta) return existingMeta;
+
+      const result: import('../types/database').CatalogProductMetadata = { ...existingMeta };
+      for (const key of Object.keys(newMeta) as (keyof import('../types/database').CatalogProductMetadata)[]) {
+        const newVal = newMeta[key];
+        const oldVal = existingMeta[key];
+        if (newVal !== undefined && newVal !== null) {
+          if (oldVal === undefined || oldVal === null || oldVal === '') {
+            (result as any)[key] = newVal;
+          }
+        }
+      }
+      return result;
+    };
 
     // Check if item with this exact barcode already exists locally
     if (normalizedBarcode) {
@@ -143,6 +193,18 @@ export class CatalogRepository {
         .first();
 
       if (existingByBarcode) {
+        // Intelligently enrich missing fields on existing item
+        const updates: Partial<CatalogItem> = {};
+        if (!existingByBarcode.brand && product.brand) updates.brand = product.brand;
+        if (!existingByBarcode.imageUrl && product.imageUrl) updates.imageUrl = product.imageUrl;
+        const mergedMeta = mergeMetadata(existingByBarcode.metadata, metadata);
+        if (JSON.stringify(mergedMeta) !== JSON.stringify(existingByBarcode.metadata)) {
+          updates.metadata = mergedMeta;
+        }
+        if (Object.keys(updates).length > 0) {
+          await this.updateCatalogItem(existingByBarcode.id, updates);
+          return { ...existingByBarcode, ...updates };
+        }
         return existingByBarcode;
       }
     }
@@ -154,8 +216,23 @@ export class CatalogRepository {
       .first();
 
     if (existingByName) {
+      const updates: Partial<CatalogItem> = {};
       if (normalizedBarcode && !existingByName.barcode) {
-        await this.updateCatalogItem(existingByName.id, { barcode: normalizedBarcode });
+        updates.barcode = normalizedBarcode;
+      }
+      if (!existingByName.brand && product.brand) {
+        updates.brand = product.brand;
+      }
+      if (!existingByName.imageUrl && product.imageUrl) {
+        updates.imageUrl = product.imageUrl;
+      }
+      const mergedMeta = mergeMetadata(existingByName.metadata, metadata);
+      if (JSON.stringify(mergedMeta) !== JSON.stringify(existingByName.metadata)) {
+        updates.metadata = mergedMeta;
+      }
+      if (Object.keys(updates).length > 0) {
+        await this.updateCatalogItem(existingByName.id, updates);
+        return { ...existingByName, ...updates };
       }
       return existingByName;
     }
@@ -169,6 +246,7 @@ export class CatalogRepository {
       barcode: normalizedBarcode || null,
       brand: product.brand || null,
       imageUrl: product.imageUrl || null,
+      metadata,
       createdAt: new Date().toISOString(),
     };
 

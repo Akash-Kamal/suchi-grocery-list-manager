@@ -1,18 +1,20 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, ArrowRight, PlusCircle, AlertTriangle, Sparkles, History as HistoryIcon, Trash2, X, Clock, Users, UserPlus } from 'lucide-react';
+import { ShoppingBag, ArrowRight, PlusCircle, AlertTriangle, Sparkles, History as HistoryIcon, Trash2, X, Clock, Users, UserPlus, Camera } from 'lucide-react';
 import { useDraftListStore } from '../../stores/useDraftListStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { historyRepository } from '../../repositories/historyRepository';
 import { catalogRepository } from '../../repositories/catalogRepository';
 import { isDraftStale } from '../../repositories/listRepository';
 import { detectGaps, type GapSuggestion } from '../../services/suggestionEngine';
-import type { GroceryList } from '../../types/database';
+import type { CatalogItem, Category, GroceryList } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { HouseholdHeader } from '../../components/ui/HouseholdHeader';
 import { LiveSyncBadge } from '../../components/ui/LiveSyncBadge';
 import { HouseholdMembersModal } from '../../components/ui/HouseholdMembersModal';
+import { BarcodeScannerModal, type ManualCustomProductInput } from '../../components/catalog/BarcodeScannerModal';
+import type { OnlineBarcodeProduct } from '../../services/barcodeProductLookup';
 
 interface HomePageProps {
   onNavigate: (path: '/' | '/catalog' | '/review' | '/history' | '/settings') => void;
@@ -20,13 +22,16 @@ interface HomePageProps {
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdSetup }) => {
-  const { currentList, items, isLoading, error, loadDraftList, applyGapSuggestion, clearDraft } = useDraftListStore();
+  const { currentList, items, isLoading, error, loadDraftList, addItem, addCustomItem, applyGapSuggestion, clearDraft } = useDraftListStore();
   const { user, household, membership, members } = useAuthStore();
   const [pastLists, setPastLists] = useState<GroceryList[]>([]);
   const [gaps, setGaps] = useState<GapSuggestion[]>([]);
   const [isHomeLoading, setIsHomeLoading] = useState(true);
   const [homeError, setHomeError] = useState<string | null>(null);
   const [showMembersModal, setShowMembersModal] = useState<boolean>(false);
+  const [showScanner, setShowScanner] = useState<boolean>(false);
+  const [catalogList, setCatalogList] = useState<CatalogItem[]>([]);
+  const [categoriesList, setCategoriesList] = useState<Category[]>([]);
 
   // Custom Delete Draft Modal
   const [showDeleteDraftModal, setShowDeleteDraftModal] = useState<boolean>(false);
@@ -47,9 +52,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
       const recent = await historyRepository.getPastLists(4);
       setPastLists(recent);
 
+      const cats = await catalogRepository.getCategories();
+      setCategoriesList(cats);
+
       // Compute gaps from recurring stats
       const recurringStats = await historyRepository.getAllRecurringStats();
       const catalogItems = await catalogRepository.getCatalogItems();
+      setCatalogList(catalogItems);
       const catalogMap = new Map(catalogItems.map((c) => [c.id, c]));
 
       const draftItemIds = new Set(currentItems.map((i) => i.catalogItemId).filter((id): id is string => Boolean(id)));
@@ -96,6 +105,68 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
     } finally {
       setIsDeletingDraft(false);
     }
+  };
+
+  // Barcode Scanner Handlers for Home Page
+  const handleItemResolved = async (item: CatalogItem) => {
+    await addItem(item);
+    await fetchData();
+  };
+
+  const handleOnlineProductAddToList = async (product: OnlineBarcodeProduct) => {
+    const tempItem: CatalogItem = {
+      id: `online-item-${product.barcode}-${Date.now()}`,
+      categoryId: product.categoryId,
+      name: product.productName,
+      defaultUnit: product.unit || 'pack',
+      isCustom: true,
+      barcode: product.barcode,
+      brand: product.brand,
+      imageUrl: product.imageUrl,
+      createdAt: new Date().toISOString(),
+    };
+    await addItem(tempItem, product.quantity, product.unit);
+    await fetchData();
+  };
+
+  const handleOnlineProductAddToCatalog = async (product: OnlineBarcodeProduct) => {
+    const saved = await catalogRepository.addOnlineCatalogItem(product);
+    setCatalogList((prev) => {
+      if (prev.some((p) => p.id === saved.id || (p.barcode && p.barcode === saved.barcode))) return prev;
+      return [...prev, saved];
+    });
+  };
+
+  const handleOnlineProductAddToListAndCatalog = async (product: OnlineBarcodeProduct) => {
+    const saved = await catalogRepository.addOnlineCatalogItem(product);
+    setCatalogList((prev) => {
+      if (prev.some((p) => p.id === saved.id || (p.barcode && p.barcode === saved.barcode))) return prev;
+      return [...prev, saved];
+    });
+    await addItem(saved, product.quantity, product.unit);
+    await fetchData();
+  };
+
+  const handleManualCustomProductSave = async (input: ManualCustomProductInput) => {
+    if (input.action === 'catalog' || input.action === 'both') {
+      const saved = await catalogRepository.addOnlineCatalogItem({
+        barcode: input.barcode,
+        productName: input.name,
+        brand: input.brand,
+        categoryId: input.categoryId,
+        unit: input.unit,
+      });
+      setCatalogList((prev) => {
+        if (prev.some((p) => p.id === saved.id || (p.barcode && p.barcode === saved.barcode))) return prev;
+        return [...prev, saved];
+      });
+      if (input.action === 'both') {
+        await addItem(saved, input.quantity, input.unit);
+      }
+    } else if (input.action === 'list') {
+      await addCustomItem(input.name, input.categoryId, input.quantity, input.unit);
+    }
+    await fetchData();
   };
 
   if (isLoading || isHomeLoading) {
@@ -193,17 +264,26 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
             </p>
           </div>
 
-          <div className="flex items-center space-x-2 sm:space-x-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setShowScanner(true)}
+              className="inline-flex items-center space-x-1.5 px-3.5 sm:px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-xs transition-all cursor-pointer min-h-[44px]"
+              aria-label="Scan Barcode"
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden xs:inline sm:inline">Scan Barcode</span>
+              <span className="inline xs:hidden sm:hidden">Scan</span>
+            </button>
             <button
               onClick={() => onNavigate('/catalog')}
-              className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold text-sm rounded-xl transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800"
+              className="inline-flex items-center space-x-1.5 px-3.5 sm:px-4 py-2.5 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold text-sm rounded-xl transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800 min-h-[44px]"
             >
               <PlusCircle className="w-4 h-4" />
               <span>Add Items</span>
             </button>
             <button
               onClick={() => onNavigate('/review')}
-              className="inline-flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-md transition-all cursor-pointer"
+              className="inline-flex items-center space-x-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-md transition-all cursor-pointer min-h-[44px]"
             >
               <span>Review ({items.length})</span>
               <ArrowRight className="w-4 h-4" />
@@ -213,7 +293,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
                 onClick={() => setShowDeleteDraftModal(true)}
                 title="Delete active draft list"
                 aria-label="Delete active draft list"
-                className="p-2.5 text-gray-400 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer border border-gray-200 dark:border-slate-700"
+                className="p-2.5 text-gray-400 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer border border-gray-200 dark:border-slate-700 min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -228,14 +308,23 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
               {household ? 'Shared draft list is currently empty' : 'Your draft list is currently empty'}
             </p>
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-              Browse the starter catalog to add Atta, Rice, Pulses, Dairy and spices with 1-tap quantity controls.
+              Browse the starter catalog or scan product barcodes to add items with 1-tap quantity controls.
             </p>
-            <button
-              onClick={() => onNavigate('/catalog')}
-              className="mt-4 px-4 py-2 bg-emerald-600 text-white font-semibold text-xs rounded-xl shadow cursor-pointer hover:bg-emerald-700"
-            >
-              Explore Starter Catalog
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
+              <button
+                onClick={() => onNavigate('/catalog')}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow cursor-pointer min-h-[44px]"
+              >
+                Explore Starter Catalog
+              </button>
+              <button
+                onClick={() => setShowScanner(true)}
+                className="px-4 py-2.5 bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold text-xs rounded-xl shadow-xs cursor-pointer flex items-center space-x-1.5 min-h-[44px]"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Scan Barcode</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="pt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
@@ -412,6 +501,26 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenHouseholdS
           </div>
         </div>
       )}
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={showScanner}
+        onClose={() => setShowScanner(false)}
+        catalogItems={catalogList}
+        categories={categoriesList}
+        currentItems={items}
+        onItemResolved={handleItemResolved}
+        onOnlineProductAddToList={handleOnlineProductAddToList}
+        onOnlineProductAddToCatalog={handleOnlineProductAddToCatalog}
+        onOnlineProductAddToListAndCatalog={handleOnlineProductAddToListAndCatalog}
+        onManualCustomProductSave={handleManualCustomProductSave}
+        onSearchRequested={() => {
+          onNavigate('/catalog');
+        }}
+        onCustomItemRequested={() => {
+          onNavigate('/catalog');
+        }}
+      />
     </div>
   );
 };

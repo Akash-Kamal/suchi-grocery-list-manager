@@ -2,16 +2,33 @@ import { normalizeBarcode } from '../utils/barcodeLookup';
 import { mapOnlineCategoryToSoochiCategoryId, getCategoryNameById } from '../utils/catalogCategoryMapping';
 import { getDefaultQuantity, normalizeUnit } from '../utils/catalogQuantity';
 
+export interface ProductNutritionInfo {
+  energyKcal?: string | number | null;
+  fat?: string | number | null;
+  carbs?: string | number | null;
+  proteins?: string | number | null;
+  sugar?: string | number | null;
+  salt?: string | number | null;
+  fiber?: string | number | null;
+}
+
 export interface OnlineBarcodeProduct {
   barcode: string;
   productName: string;
   brand: string | null;
+  manufacturer?: string | null;
   categoryId: string;
   categoryName: string;
   imageUrl: string | null;
   quantity: number;
   unit: string;
   rawQuantityText: string | null;
+  genericName?: string | null;
+  description?: string | null;
+  ingredients?: string | null;
+  allergens?: string | null;
+  countries?: string | null;
+  nutrition?: ProductNutritionInfo | null;
   source: string;
 }
 
@@ -102,12 +119,138 @@ export function extractBrand(product: Record<string, unknown>): string | null {
   if (!product || typeof product !== 'object') return null;
 
   if (typeof product.brands === 'string' && product.brands.trim().length > 0) {
-    // Some responses contain comma-separated brands like "Nestlé, Maggi"
     return product.brands.trim();
   }
 
   if (typeof product.brand_owner === 'string' && product.brand_owner.trim().length > 0) {
     return product.brand_owner.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Cleanly extracts manufacturer/company name from Open Food Facts product structure.
+ */
+export function extractManufacturer(product: Record<string, unknown>): string | null {
+  if (!product || typeof product !== 'object') return null;
+
+  if (typeof product.brand_owner === 'string' && product.brand_owner.trim().length > 0) {
+    return product.brand_owner.trim();
+  }
+
+  if (typeof product.manufacturing_places === 'string' && product.manufacturing_places.trim().length > 0) {
+    return product.manufacturing_places.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Cleanly extracts ingredients list from Open Food Facts product structure.
+ */
+export function extractIngredients(product: Record<string, unknown>): string | null {
+  if (!product || typeof product !== 'object') return null;
+
+  const candidates = [
+    product.ingredients_text,
+    product.ingredients_text_en,
+    product.ingredients_text_hi,
+    product.ingredients_text_with_allergens,
+  ];
+
+  for (const ing of candidates) {
+    if (typeof ing === 'string' && ing.trim().length > 0) {
+      return ing.trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Cleanly extracts allergens information from Open Food Facts product structure.
+ */
+export function extractAllergens(product: Record<string, unknown>): string | null {
+  if (!product || typeof product !== 'object') return null;
+
+  if (typeof product.allergens === 'string' && product.allergens.trim().length > 0) {
+    return product.allergens.trim();
+  }
+
+  if (typeof product.allergens_from_ingredients === 'string' && product.allergens_from_ingredients.trim().length > 0) {
+    return product.allergens_from_ingredients.trim();
+  }
+
+  if (Array.isArray(product.allergens_tags) && product.allergens_tags.length > 0) {
+    return product.allergens_tags
+      .map((tag: string) => String(tag).replace(/^en:/, '').replace(/-/g, ' ').trim())
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  return null;
+}
+
+/**
+ * Cleanly extracts countries/origins from Open Food Facts product structure.
+ */
+export function extractCountries(product: Record<string, unknown>): string | null {
+  if (!product || typeof product !== 'object') return null;
+
+  if (typeof product.countries === 'string' && product.countries.trim().length > 0) {
+    return product.countries.trim();
+  }
+
+  if (typeof product.origins === 'string' && product.origins.trim().length > 0) {
+    return product.origins.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Cleanly extracts nutrition information per 100g/serving from Open Food Facts.
+ */
+export function extractNutrition(product: Record<string, unknown>): ProductNutritionInfo | null {
+  if (!product || typeof product !== 'object') return null;
+
+  const nutriments = product.nutriments as Record<string, unknown> | undefined;
+  if (!nutriments || typeof nutriments !== 'object') return null;
+
+  const getNutriVal = (key: string): string | number | null => {
+    const val = nutriments[`${key}_100g`] ?? nutriments[key] ?? nutriments[`${key}_serving`];
+    if (typeof val === 'number') return Math.round(val * 10) / 10;
+    if (typeof val === 'string' && val.trim().length > 0) return val.trim();
+    return null;
+  };
+
+  const energyKcal = getNutriVal('energy-kcal') ?? getNutriVal('energy');
+  const fat = getNutriVal('fat');
+  const carbs = getNutriVal('carbohydrates');
+  const proteins = getNutriVal('proteins');
+  const sugar = getNutriVal('sugars');
+  const salt = getNutriVal('salt');
+  const fiber = getNutriVal('fiber');
+
+  if (
+    energyKcal !== null ||
+    fat !== null ||
+    carbs !== null ||
+    proteins !== null ||
+    sugar !== null ||
+    salt !== null ||
+    fiber !== null
+  ) {
+    return {
+      energyKcal,
+      fat,
+      carbs,
+      proteins,
+      sugar,
+      salt,
+      fiber,
+    };
   }
 
   return null;
@@ -168,6 +311,7 @@ export async function lookupOnlineProductByBarcode(
     }
 
     const brand = extractBrand(product);
+    const manufacturer = extractManufacturer(product);
     const categoryId = mapOnlineCategoryToSoochiCategoryId(
       Array.isArray(product.categories_tags) ? (product.categories_tags as string[]) : null,
       typeof product.categories === 'string' ? product.categories : null,
@@ -194,6 +338,13 @@ export async function lookupOnlineProductByBarcode(
       imageUrl = product.image_small_url;
     }
 
+    const genericName = typeof product.generic_name === 'string' && product.generic_name.trim().length > 0 ? product.generic_name.trim() : null;
+    const description = typeof product.description === 'string' && product.description.trim().length > 0 ? product.description.trim() : genericName;
+    const ingredients = extractIngredients(product);
+    const allergens = extractAllergens(product);
+    const countries = extractCountries(product);
+    const nutrition = extractNutrition(product);
+
     // Default quantity fallback if quantity was 1
     const finalQuantity = quantity > 0 ? quantity : getDefaultQuantity(unit);
 
@@ -201,12 +352,19 @@ export async function lookupOnlineProductByBarcode(
       barcode: normalized,
       productName,
       brand,
+      manufacturer,
       categoryId,
       categoryName,
       imageUrl,
       quantity: finalQuantity,
       unit: normalizeUnit(unit) || 'pack',
       rawQuantityText,
+      genericName,
+      description,
+      ingredients,
+      allergens,
+      countries,
+      nutrition,
       source: 'Open Food Facts',
     };
   } catch {
