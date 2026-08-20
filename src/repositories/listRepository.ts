@@ -252,6 +252,28 @@ export class ListRepository {
     }
   }
 
+  async updateAllItemsPurchasedStatus(listId: string, isPurchased: boolean): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.transaction('rw', [this.db.listItems, this.db.groceryLists], async () => {
+      const items = await this.db.listItems.where('listId').equals(listId).toArray();
+      for (const item of items) {
+        if (item.isPurchased !== isPurchased) {
+          await this.db.listItems.update(item.id, { isPurchased });
+        }
+      }
+      await this.db.groceryLists.update(listId, { updatedAt: now });
+    });
+
+    const household = useAuthStore.getState().household;
+    if (household) {
+      const allItems = await this.db.listItems.where('listId').equals(listId).toArray();
+      const currentList = await this.db.groceryLists.get(listId);
+      if (currentList) {
+        remoteListRepository.saveDraftList(household.id, currentList, allItems).catch(() => {});
+      }
+    }
+  }
+
   async removeListItem(itemId: string): Promise<void> {
     const item = await this.db.listItems.get(itemId);
     if (!item) return;

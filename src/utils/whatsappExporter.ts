@@ -1,34 +1,38 @@
 import type { GroceryList, ListItem, Category } from '../types/database';
+import { groupListItemsByCategory } from './listReview';
 
 export function formatWhatsAppMessage(
   list: GroceryList,
   items: ListItem[],
   categories: Category[]
 ): string {
-  const catMap = new Map(categories.map((c) => [c.id, c.name]));
+  const groups = groupListItemsByCategory(items, categories);
 
-  // Group items by category
-  const grouped = new Map<string, ListItem[]>();
-  for (const item of items) {
-    const catName = (item.catalogItemId ? catMap.get(item.catalogItemId) : null) || 'Staples & Misc';
-    const listArr = grouped.get(catName) || [];
-    listArr.push(item);
-    grouped.set(catName, listArr);
-  }
-
-  const estimatedTotal = items.reduce((sum, i) => sum + (i.estimatedPrice || 0) * i.quantity, 0);
+  const estimatedTotal = items.reduce(
+    (sum, i) =>
+      sum +
+      (typeof i.estimatedPrice === 'number' &&
+      !isNaN(i.estimatedPrice) &&
+      isFinite(i.estimatedPrice) &&
+      i.estimatedPrice > 0
+        ? i.estimatedPrice * (i.quantity > 0 ? i.quantity : 1)
+        : 0),
+    0
+  );
 
   let text = `🛒 *${list.title}*\n`;
-  text += `📅 Month: ${list.listMonth}\n`;
+  if (list.listMonth) {
+    text += `📅 Month: ${list.listMonth}\n`;
+  }
   text += `📦 Total Items: ${items.length}`;
   if (estimatedTotal > 0) {
     text += ` | Est. Budget: ₹${estimatedTotal.toLocaleString('en-IN')}`;
   }
   text += `\n-----------------------------\n\n`;
 
-  for (const [catName, catItems] of grouped.entries()) {
-    text += `*${catName.toUpperCase()}*\n`;
-    for (const item of catItems) {
+  for (const group of groups) {
+    text += `*${group.categoryName.toUpperCase()}*\n`;
+    for (const item of group.items) {
       const isCheck = item.isPurchased ? '✅' : '☐';
       text += `${isCheck} ${item.itemNameSnapshot} — ${item.quantity} ${item.unit}`;
       if (item.note) {

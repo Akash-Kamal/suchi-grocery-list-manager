@@ -4,6 +4,7 @@ import { useDraftListStore } from '../../stores/useDraftListStore';
 import { catalogRepository } from '../../repositories/catalogRepository';
 import { historyRepository } from '../../repositories/historyRepository';
 import { detectGaps, flagUnusualQuantity, type GapSuggestion } from '../../services/suggestionEngine';
+import { getListReviewSummary } from '../../utils/listReview';
 import type { Category, ListItem } from '../../types/database';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -97,24 +98,10 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
     initData();
   }, [initData, household?.id]);
 
-  // Group items by category
-  const groupedItems = useMemo(() => {
-    const map = new Map<string, ListItem[]>();
-    for (const item of items) {
-      let catId = 'cat-misc';
-      if (item.catalogItemId) {
-        // Find category if possible
-        const matchedCat = categories.find((c) => c.id.includes(item.catalogItemId || ''));
-        if (matchedCat) catId = matchedCat.id;
-      }
-      const list = map.get(catId) || [];
-      list.push(item);
-      map.set(catId, list);
-    }
-    return map;
+  // Complete deterministic review summary & category grouping
+  const reviewSummary = useMemo(() => {
+    return getListReviewSummary(items, categories);
   }, [items, categories]);
-
-  const estimatedTotal = items.reduce((sum, item) => sum + (item.estimatedPrice || 0) * item.quantity, 0);
 
   const handleStartEditName = (item: ListItem) => {
     setEditingItemId(item.id);
@@ -167,7 +154,7 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
               {currentList?.title || 'Monthly Grocery List'}
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Review & edit item names, measurement units, quantities, estimated prices, and gap warnings.
+              Review & edit item names, measurement units, quantities, estimated prices, and organization.
             </p>
           </div>
 
@@ -189,20 +176,46 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
           </div>
         </div>
 
-        {/* Budget Bar */}
+        {/* Budget & Review Bar */}
         <div className="flex items-center justify-between bg-emerald-50/60 p-4 rounded-xl border border-emerald-100">
           <div>
             <span className="text-xs text-emerald-700 font-medium">Estimated Total Budget</span>
             <p className="text-2xl font-black text-emerald-950">
-              ₹{estimatedTotal.toLocaleString('en-IN')}
+              ₹{reviewSummary.estimatedBudget.toLocaleString('en-IN')}
             </p>
           </div>
           <div className="text-right">
-            <span className="text-xs text-gray-500 font-medium">Items Count</span>
-            <p className="text-lg font-bold text-gray-900">{items.length} items</p>
+            <span className="text-xs text-gray-500 font-medium">Organization</span>
+            <p className="text-sm font-bold text-gray-900">
+              {reviewSummary.totalItems} items · {reviewSummary.categoryCount} categories
+            </p>
           </div>
         </div>
       </div>
+
+      {/* Review Warnings Section (if any non-destructive issues found) */}
+      {reviewSummary.issues.length > 0 && (
+        <div className="bg-amber-50 rounded-2xl p-5 border border-amber-200 shadow-sm space-y-2">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <h3 className="text-sm font-bold text-amber-900">
+              Items Needing Review ({reviewSummary.issues.length})
+            </h3>
+          </div>
+          <ul className="text-xs text-amber-800 space-y-1 list-disc pl-5">
+            {reviewSummary.issues.slice(0, 5).map((issue, idx) => (
+              <li key={`${issue.itemId}-${idx}`}>
+                <span className="font-semibold">{issue.itemName}:</span> {issue.message}
+              </li>
+            ))}
+            {reviewSummary.issues.length > 5 && (
+              <li className="font-medium">
+                + {reviewSummary.issues.length - 5} more items needing review
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
 
       {/* Gap Warnings Section */}
       {gaps.length > 0 && (
@@ -251,19 +264,16 @@ export const ListReviewPage: React.FC<ListReviewPageProps> = ({ onNavigate }) =>
         />
       ) : (
         <div className="space-y-6">
-          {Array.from(groupedItems.entries()).map(([catId, catItems]) => {
-            const cat = categories.find((c) => c.id === catId);
-            const categoryName = cat ? cat.name : 'Staples & Miscellaneous';
-
+          {reviewSummary.categoryGroups.map((group) => {
             return (
-              <div key={catId} className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
+              <div key={group.categoryId} className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
                 <h3 className="text-sm font-black text-emerald-900 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
-                  <span>{categoryName}</span>
-                  <span className="text-xs text-gray-400 font-normal">{catItems.length} items</span>
+                  <span>{group.categoryName}</span>
+                  <span className="text-xs text-gray-400 font-normal">{group.items.length} items</span>
                 </h3>
 
                 <div className="divide-y divide-gray-100">
-                  {catItems.map((item) => {
+                  {group.items.map((item) => {
                     const median = item.catalogItemId ? mediansMap.get(item.catalogItemId) : undefined;
                     const unusual = median ? flagUnusualQuantity(item.quantity, median) : null;
                     const isEditingThisName = editingItemId === item.id;

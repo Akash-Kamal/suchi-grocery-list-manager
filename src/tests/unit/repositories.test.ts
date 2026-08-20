@@ -49,6 +49,38 @@ describe('Repository Layer Unit Tests', () => {
       expect(aliasMatches.some((item) => item.name.includes('Onions'))).toBe(true);
     });
 
+    it('loads all item aliases via getItemAliases and supports in-memory alias mapping', async () => {
+      const aliases = await catalogRepo.getItemAliases();
+      expect(aliases.length).toBeGreaterThanOrEqual(15);
+
+      const aliasMap = new Map<string, string[]>();
+      for (const a of aliases) {
+        const list = aliasMap.get(a.catalogItemId);
+        if (list) list.push(a.aliasText.toLowerCase());
+        else aliasMap.set(a.catalogItemId, [a.aliasText.toLowerCase()]);
+      }
+
+      const allItems = await catalogRepo.getCatalogItems();
+      const search = (q: string) => {
+        const query = q.trim().toLowerCase();
+        return allItems.filter((item) => {
+          if (item.name.toLowerCase().includes(query)) return true;
+          const itemAliases = aliasMap.get(item.id);
+          return itemAliases && itemAliases.some((al) => al.includes(query));
+        });
+      };
+
+      // Test cases
+      expect(search('doodh').some((i) => i.name.includes('Milk'))).toBe(true);
+      expect(search('दूध').some((i) => i.name.includes('Milk'))).toBe(true);
+      expect(search('pyaaz').some((i) => i.name.includes('Onion'))).toBe(true);
+      expect(search('प्याज').some((i) => i.name.includes('Onion'))).toBe(true);
+      expect(search('chawal').some((i) => i.name.includes('Rice'))).toBe(true);
+      expect(search('चावल').some((i) => i.name.includes('Rice'))).toBe(true);
+      expect(search('aloo').some((i) => i.name.includes('Potatoes'))).toBe(true);
+      expect(search('आलू').some((i) => i.name.includes('Potatoes'))).toBe(true);
+    });
+
     it('adds custom catalog items correctly', async () => {
       const customItem = await catalogRepo.addCustomCatalogItem({
         categoryId: 'cat-kitchen',

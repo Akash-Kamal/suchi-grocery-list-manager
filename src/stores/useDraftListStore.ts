@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { listRepository } from '../repositories/listRepository';
+import { findMatchingListItem, mergeItemQuantities } from '../utils/catalogItemIdentity';
 import type { CatalogItem, GroceryList, ListItem } from '../types/database';
 import type { GapSuggestion } from '../services/suggestionEngine';
 
@@ -20,6 +21,9 @@ interface DraftListState {
   updateItemNote: (itemId: string, note: string | null) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
   applyGapSuggestion: (suggestion: GapSuggestion) => Promise<void>;
+  toggleItemPurchased: (itemId: string) => Promise<void>;
+  markAllItemsPurchased: (isPurchased: boolean) => Promise<void>;
+  resetShoppingProgress: () => Promise<void>;
   finalizeList: () => Promise<string | null>; // Returns listId if successful
   clearDraft: () => Promise<void>;
 }
@@ -60,23 +64,51 @@ export const useDraftListStore = create<DraftListState>((set, get) => ({
 
     const selectedUnit = unit || catalogItem.defaultUnit || 'kg';
 
-    // Check if item already exists in current draft
-    const existingIndex = items.findIndex(
-      (i) => i.catalogItemId === catalogItem.id || i.itemNameSnapshot.toLowerCase() === catalogItem.name.toLowerCase()
-    );
+    // Check if item already exists in current draft using normalized identity
+    const matchingItem = findMatchingListItem(items, {
+      catalogItemId: catalogItem.id,
+      name: catalogItem.name,
+    });
 
     let updatedItems: ListItem[];
 
-    if (existingIndex >= 0) {
-      // Increase quantity of existing item
-      const existing = items[existingIndex];
-      const updatedItem = {
-        ...existing,
-        quantity: existing.quantity + addQuantity,
-        note: note !== undefined ? note : existing.note,
-      };
-      updatedItems = [...items];
-      updatedItems[existingIndex] = updatedItem;
+    if (matchingItem) {
+      const { mergedQty, canMerge } = mergeItemQuantities(
+        matchingItem.quantity,
+        matchingItem.unit,
+        addQuantity,
+        selectedUnit
+      );
+
+      if (canMerge) {
+        // Increase quantity of existing item
+        updatedItems = items.map((i) =>
+          i.id === matchingItem.id
+            ? {
+                ...i,
+                quantity: mergedQty,
+                catalogItemId: i.catalogItemId || catalogItem.id,
+                note: note !== undefined ? note : i.note,
+              }
+            : i
+        );
+      } else {
+        // Incompatible units: append separate item
+        const newItem: ListItem = {
+          id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          listId: currentList.id,
+          catalogItemId: catalogItem.id,
+          itemNameSnapshot: catalogItem.name,
+          quantity: addQuantity,
+          unit: selectedUnit,
+          estimatedPrice: null,
+          actualPrice: null,
+          isPurchased: false,
+          note,
+          sortOrder: items.length + 1,
+        };
+        updatedItems = [...items, newItem];
+      }
     } else {
       // Create new snapshot-first list item
       const newItem: ListItem = {
@@ -111,21 +143,67 @@ export const useDraftListStore = create<DraftListState>((set, get) => ({
       set({ currentList });
     }
 
-    const newItem: ListItem = {
-      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      listId: currentList.id,
-      catalogItemId: null, // Custom non-catalog item
-      itemNameSnapshot: name.trim(),
-      quantity,
-      unit: unit || 'pack',
-      estimatedPrice: null,
-      actualPrice: null,
-      isPurchased: false,
-      note,
-      sortOrder: items.length + 1,
-    };
+    const cleanName = name.trim();
+    const selectedUnit = unit || 'pack';
 
-    const updatedItems = [...items, newItem];
+    const matchingItem = findMatchingListItem(items, {
+      catalogItemId: null,
+      name: cleanName,
+    });
+
+    let updatedItems: ListItem[];
+
+    if (matchingItem) {
+      const { mergedQty, canMerge } = mergeItemQuantities(
+        matchingItem.quantity,
+        matchingItem.unit,
+        quantity,
+        selectedUnit
+      );
+
+      if (canMerge) {
+        updatedItems = items.map((i) =>
+          i.id === matchingItem.id
+            ? {
+                ...i,
+                quantity: mergedQty,
+                note: note !== undefined ? note : i.note,
+              }
+            : i
+        );
+      } else {
+        const newItem: ListItem = {
+          id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          listId: currentList.id,
+          catalogItemId: null,
+          itemNameSnapshot: cleanName,
+          quantity,
+          unit: selectedUnit,
+          estimatedPrice: null,
+          actualPrice: null,
+          isPurchased: false,
+          note,
+          sortOrder: items.length + 1,
+        };
+        updatedItems = [...items, newItem];
+      }
+    } else {
+      const newItem: ListItem = {
+        id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        listId: currentList.id,
+        catalogItemId: null, // Custom non-catalog item
+        itemNameSnapshot: cleanName,
+        quantity,
+        unit: selectedUnit,
+        estimatedPrice: null,
+        actualPrice: null,
+        isPurchased: false,
+        note,
+        sortOrder: items.length + 1,
+      };
+      updatedItems = [...items, newItem];
+    }
+
     set({ items: updatedItems });
     await listRepository.saveDraftList(currentList, updatedItems);
   },
@@ -214,6 +292,35 @@ export const useDraftListStore = create<DraftListState>((set, get) => ({
     };
 
     const updatedItems = [...items, newItem];
+    set({ items: updatedItems });
+    await listRepository.saveDraftList(currentList, updatedItems);
+  },
+
+  toggleItemPurchased: async (itemId: string) => {
+    const { currentList, items } = get();
+    if (!currentList) return;
+
+    const updatedItems = items.map((i) =>
+      i.id === itemId ? { ...i, isPurchased: !i.isPurchased } : i
+    );
+    set({ items: updatedItems });
+    await listRepository.saveDraftList(currentList, updatedItems);
+  },
+
+  markAllItemsPurchased: async (isPurchased: boolean) => {
+    const { currentList, items } = get();
+    if (!currentList || items.length === 0) return;
+
+    const updatedItems = items.map((i) => ({ ...i, isPurchased }));
+    set({ items: updatedItems });
+    await listRepository.saveDraftList(currentList, updatedItems);
+  },
+
+  resetShoppingProgress: async () => {
+    const { currentList, items } = get();
+    if (!currentList || items.length === 0) return;
+
+    const updatedItems = items.map((i) => ({ ...i, isPurchased: false }));
     set({ items: updatedItems });
     await listRepository.saveDraftList(currentList, updatedItems);
   },

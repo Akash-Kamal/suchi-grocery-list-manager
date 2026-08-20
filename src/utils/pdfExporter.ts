@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import type { GroceryList, ListItem, Category } from '../types/database';
+import { groupListItemsByCategory } from './listReview';
 
 export type PageSizeFormat = 'A4' | 'A5';
 
@@ -31,17 +32,7 @@ export async function generateGroceryPDF(
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  const catMap = new Map(categories.map((c) => [c.id, c.name]));
-
-  // Group items by category
-  const grouped = new Map<string, ListItem[]>();
-  for (const item of items) {
-    const rawCat = (item.catalogItemId ? catMap.get(item.catalogItemId) : null) || 'Staples & Miscellaneous';
-    const catName = cleanText(rawCat, 'Staples & Miscellaneous');
-    const listArr = grouped.get(catName) || [];
-    listArr.push(item);
-    grouped.set(catName, listArr);
-  }
+  const groups = groupListItemsByCategory(items, categories);
 
   let y = pageHeight - 50;
 
@@ -110,7 +101,7 @@ export async function generateGroceryPDF(
   y -= 20;
 
   // Draw Items Grouped by Category
-  for (const [catName, catItems] of grouped.entries()) {
+  for (const group of groups) {
     // Page overflow check
     if (y < 60) {
       page = pdfDoc.addPage([pageWidth, pageHeight]);
@@ -126,7 +117,7 @@ export async function generateGroceryPDF(
       color: rgb(0.93, 0.96, 0.94),
     });
 
-    page.drawText(cleanText(catName, 'STAPLES').toUpperCase(), {
+    page.drawText(cleanText(group.categoryName, 'STAPLES').toUpperCase(), {
       x: 42,
       y: y - 12,
       size: 9,
@@ -136,7 +127,7 @@ export async function generateGroceryPDF(
 
     y -= 26;
 
-    for (const item of catItems) {
+    for (const item of group.items) {
       if (y < 50) {
         page = pdfDoc.addPage([pageWidth, pageHeight]);
         y = pageHeight - 50;

@@ -126,6 +126,66 @@ export class CatalogRepository {
     return newItem;
   }
 
+  async addOnlineCatalogItem(product: {
+    barcode: string;
+    productName: string;
+    brand?: string | null;
+    categoryId?: string | null;
+    unit?: string | null;
+    imageUrl?: string | null;
+  }): Promise<CatalogItem> {
+    const normalizedBarcode = (product.barcode || '').trim();
+
+    // Check if item with this exact barcode already exists locally
+    if (normalizedBarcode) {
+      const existingByBarcode = await this.db.catalogItems
+        .filter((item) => (item.barcode || '').trim() === normalizedBarcode)
+        .first();
+
+      if (existingByBarcode) {
+        return existingByBarcode;
+      }
+    }
+
+    // Check if item with the same name already exists
+    const cleanName = product.productName.trim();
+    const existingByName = await this.db.catalogItems
+      .filter((item) => item.name.toLowerCase() === cleanName.toLowerCase())
+      .first();
+
+    if (existingByName) {
+      if (normalizedBarcode && !existingByName.barcode) {
+        await this.updateCatalogItem(existingByName.id, { barcode: normalizedBarcode });
+      }
+      return existingByName;
+    }
+
+    const newItem: CatalogItem = {
+      id: `custom-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      categoryId: product.categoryId || 'cat-kitchen',
+      name: cleanName,
+      defaultUnit: product.unit || 'pack',
+      isCustom: true,
+      barcode: normalizedBarcode || null,
+      brand: product.brand || null,
+      imageUrl: product.imageUrl || null,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.db.catalogItems.add(newItem);
+
+    // Sync to Supabase if in household
+    const household = useAuthStore.getState().household;
+    if (household) {
+      remoteCatalogRepository.addCustomCatalogItem(household.id, newItem).catch((err) => {
+        console.warn('Sync custom item error, queuing:', err);
+        syncManager.enqueueOp('catalog_items', 'insert', newItem.id, newItem);
+      });
+    }
+
+    return newItem;
+  }
+
   async updateCatalogItem(id: string, updates: Partial<CatalogItem>): Promise<void> {
     await this.db.catalogItems.update(id, updates);
 
@@ -150,6 +210,10 @@ export class CatalogRepository {
         syncManager.enqueueOp('catalog_items', 'delete', id, null);
       });
     }
+  }
+
+  async getItemAliases(): Promise<ItemAlias[]> {
+    return this.db.itemAliases.toArray();
   }
 
   async getAliasesForItem(catalogItemId: string): Promise<ItemAlias[]> {

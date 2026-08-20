@@ -15,6 +15,9 @@ export interface CatalogItem {
   name: string;
   defaultUnit: string;
   isCustom: boolean;
+  barcode?: string | null;
+  brand?: string | null;
+  imageUrl?: string | null;
   createdAt: string;
 }
 
