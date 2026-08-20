@@ -78,7 +78,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onOnlineProductAddToCatalog,
   onOnlineProductAddToListAndCatalog,
 }) => {
-  const [status, setStatus] = useState<ScannerStatus>('idle');
+  const [status, setStatus] = useState<ScannerStatus>(isOpen ? 'starting' : 'idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [scannedCode, setScannedCode] = useState<string>('');
   const [matchedItem, setMatchedItem] = useState<CatalogItem | null>(null);
@@ -88,8 +88,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [hasTorchSupport, setHasTorchSupport] = useState<boolean>(false);
   const [isActionInProgress, setIsActionInProgress] = useState<boolean>(false);
 
+  const scannerContainerRef = useRef<HTMLDivElement | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingScanRef = useRef<boolean>(false);
+  const isStartingRef = useRef<boolean>(false);
   const barcodeMapRef = useRef<Map<string, CatalogItem>>(new Map());
 
   // Store latest callbacks in refs to prevent useEffect re-runs
@@ -211,8 +213,27 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     [stopScanner]
   );
 
+  // Poll for the scanner DOM container to be mounted and attached to document
+  const waitForContainer = async (timeoutMs = 8000): Promise<boolean> => {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      if (
+        scannerContainerRef.current &&
+        document.body.contains(scannerContainerRef.current) &&
+        document.getElementById(SCAN_ELEMENT_ID)
+      ) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    return false;
+  };
+
   // Start live camera stream with intelligent multi-platform fallback (Android Chrome + macOS Chrome/Safari)
   const startScanner = useCallback(async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
+
     setStatus('starting');
     setErrorMessage('');
     setScannedCode('');
@@ -223,6 +244,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setIsTorchOn(false);
 
     try {
+      // 1. Wait for container to be firmly committed to DOM
+      const isReady = await waitForContainer(8000);
+      if (!isReady) {
+        console.warn('[SOOCHI Scanner] Viewfinder DOM container timed out');
+        setStatus('error');
+        setErrorMessage('Camera initialization timed out. You can enter the barcode manually.');
+        return;
+      }
+
+      // 2. Check getUserMedia support
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         console.warn('[SOOCHI Scanner] getUserMedia is not supported in this browser environment');
         setStatus('camera_unavailable');
@@ -231,14 +262,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       }
 
       await stopScanner();
-
-      // Ensure scanning container is in the DOM
-      const element = document.getElementById(SCAN_ELEMENT_ID);
-      if (!element) {
-        console.warn('[SOOCHI Scanner] Target DOM container not ready yet');
-        setStatus('starting');
-        return;
-      }
 
       const html5QrCode = new Html5Qrcode(SCAN_ELEMENT_ID, {
         formatsToSupport: SUPPORTED_FORMATS,
@@ -347,24 +370,25 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         setStatus('error');
         setErrorMessage('Camera initialization failed. You can enter the barcode manually.');
       }
+    } finally {
+      isStartingRef.current = false;
     }
   }, [handleDecodedCode, stopScanner]);
 
-  // Start scanner only on modal open, and stop on close/unmount
+  // Start scanner when modal opens, stop when modal closes
   useEffect(() => {
     if (isOpen) {
-      const timer = setTimeout(() => {
-        startScanner();
-      }, 150);
-      return () => {
-        clearTimeout(timer);
-        stopScanner();
-      };
+      startScanner();
     } else {
       stopScanner();
       setStatus('idle');
       isProcessingScanRef.current = false;
+      isStartingRef.current = false;
     }
+    return () => {
+      stopScanner();
+      isStartingRef.current = false;
+    };
   }, [isOpen, startScanner, stopScanner]);
 
   // Clean up on component unmount
@@ -520,7 +544,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           {/* Live Camera Viewfinder (Scanning or Starting) */}
           {(status === 'scanning' || status === 'starting') && (
             <div className="relative rounded-2xl overflow-hidden bg-black aspect-square flex items-center justify-center border border-gray-800 shadow-inner">
-              <div id={SCAN_ELEMENT_ID} className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" />
+              <div
+                ref={scannerContainerRef}
+                id={SCAN_ELEMENT_ID}
+                className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
+              />
 
               {/* Scanning Target Frame Overlay */}
               {status === 'scanning' && (
