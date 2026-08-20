@@ -20,6 +20,7 @@ import { lookupCatalogItemByBarcode, normalizeBarcode, buildBarcodeLookupMap } f
 import { lookupOnlineProductByBarcode, type OnlineBarcodeProduct } from '../../services/barcodeProductLookup';
 import { getDefaultQuantity } from '../../utils/catalogQuantity';
 import { normalizeItemName } from '../../utils/catalogItemIdentity';
+import { runCameraDiagnostics } from '../../utils/cameraDiagnostics';
 import type { CatalogItem, Category, ListItem } from '../../types/database';
 
 interface BarcodeScannerModalProps {
@@ -244,6 +245,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setIsTorchOn(false);
 
     try {
+      runCameraDiagnostics().catch(console.warn);
+
       // 1. Wait for container to be firmly committed to DOM
       const isReady = await waitForContainer(8000);
       if (!isReady) {
